@@ -18,6 +18,7 @@ def args_parser():
     parser.add_argument('--split', type=str, default='user', help="train-test split type, user or sample")
     parser.add_argument('--schedule', nargs='+', default=[50, 80], help='decrease learning rate at these epochs.')
     parser.add_argument('--lr_decay', type=float, default=0.1, help="learning rate decay")
+    parser.add_argument('--weight_decay', type=float, default=0, help="sgd weight decay")
 
     # model arguments
     parser.add_argument('--model', type=str, default='mlp', help='model name')
@@ -28,13 +29,14 @@ def args_parser():
     parser.add_argument('--num_filters', type=int, default=32, help="number of filters for conv nets")
     parser.add_argument('--max_pool', type=str, default='True',
                         help="Whether use max pooling rather than strided convolutions")
-
+    parser.add_argument('--reproduce', action='store_true', help = 'reproduce paper code')
+    
     # other arguments
     parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset")
     parser.add_argument('--iid', action='store_true', help='whether i.i.d or not')
     parser.add_argument('--num_classes', type=int, default=10, help="number of classes")
     parser.add_argument('--num_channels', type=int, default=3, help="number of channels of imges")
-    parser.add_argument('--gpu', type=int, default=0, help="GPU ID, -1 for CPU")
+    parser.add_argument('--gpu', type=int, default=1, help="GPU ID, -1 for CPU")
     parser.add_argument('--stopping_rounds', type=int, default=10, help='rounds of early stopping')
     parser.add_argument('--verbose', action='store_true', help='verbose print')
     parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
@@ -43,6 +45,9 @@ def args_parser():
     # noise label arguments
     parser.add_argument('--noise_type', type = str, help='[pairflip, symmetric]', default='pairflip')
     parser.add_argument('--noise_rate', type = float, help = 'corruption rate, should be less than 1', default = 0.2)
+    
+    # co-teaching arguments
+    parser.add_argument('--num_gradual', type = int, help = 'T_k', default = 10)
     
     # save arguments
     parser.add_argument('--save_dir', type=str, default=None, help="name of save directory")
