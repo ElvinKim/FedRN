@@ -3,6 +3,8 @@
 # Python version: 3.6
 
 import argparse
+import sys
+
 
 def args_parser():
     parser = argparse.ArgumentParser()
@@ -46,6 +48,21 @@ def args_parser():
     
     # save arguments
     parser.add_argument('--save_dir', type=str, default=None, help="name of save directory")
+    
+    # Joint Optimization arguments
+    if sys.argv[0] == "main_fed_LNL_JointOpt.py":
+        parser.add_argument('--alpha', type=float, default=1.2, help="alpha for joint optimization")
+        parser.add_argument('--beta', type=float, default=0.8, help="beta for joint optimization")
+        parser.add_argument('--begin', type=int, default=35, help='When to begin updating labels')
+        
+    # Joint Optimization arguments
+    if sys.argv[0] in ["main_fed_LNL_diff_NR.py", 'main_fed_diff_NR_JointOpt.py']:
+        parser.add_argument('--noise_group_num', nargs='+', default=[50, 50], type=int)
+        parser.add_argument('--group_noise_rate', nargs='+', default=[0.1, 0.3], type=float)
+        
+        parser.add_argument('--alpha', type=float, default=1.2, help="alpha for joint optimization")
+        parser.add_argument('--beta', type=float, default=0.8, help="beta for joint optimization")
+        parser.add_argument('--begin', type=int, default=35, help='When to begin updating labels')
     
     args = parser.parse_args()
     return args
