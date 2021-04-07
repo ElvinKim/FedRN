@@ -20,6 +20,7 @@ def args_parser():
     parser.add_argument('--split', type=str, default='user', help="train-test split type, user or sample")
     parser.add_argument('--schedule', nargs='+', default=[50, 80], help='decrease learning rate at these epochs.')
     parser.add_argument('--lr_decay', type=float, default=0.1, help="learning rate decay")
+    parser.add_argument('--weight_decay', type=float, default=0, help="sgd weight decay")
 
     # model arguments
     parser.add_argument('--model', type=str, default='mlp', help='model name')
@@ -30,7 +31,8 @@ def args_parser():
     parser.add_argument('--num_filters', type=int, default=32, help="number of filters for conv nets")
     parser.add_argument('--max_pool', type=str, default='True',
                         help="Whether use max pooling rather than strided convolutions")
-
+    parser.add_argument('--reproduce', action='store_true', help = 'reproduce paper code')
+    
     # other arguments
     parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset")
     parser.add_argument('--iid', action='store_true', help='whether i.i.d or not')
@@ -45,6 +47,9 @@ def args_parser():
     # noise label arguments
     parser.add_argument('--noise_type', type = str, help='[pairflip, symmetric]', default='pairflip')
     parser.add_argument('--noise_rate', type = float, help = 'corruption rate, should be less than 1', default = 0.2)
+    
+    # co-teaching arguments
+    parser.add_argument('--num_gradual', type = int, help = 'T_k', default = 10)
     
     # save arguments
     parser.add_argument('--save_dir', type=str, default=None, help="name of save directory")
