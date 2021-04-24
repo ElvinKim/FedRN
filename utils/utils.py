@@ -5,6 +5,7 @@ import hashlib
 import errno
 import numpy as np
 from numpy.testing import assert_array_almost_equal
+import random
 
 def check_integrity(fpath, md5):
     if not os.path.isfile(fpath):
@@ -177,3 +178,12 @@ def noisify(dataset='mnist', nb_classes=10, train_labels=None, noise_type=None, 
     if noise_type == 'symmetric':
         train_noisy_labels, actual_noise_rate = noisify_multiclass_symmetric(train_labels, noise_rate, random_state=0, nb_classes=nb_classes)
     return train_noisy_labels, actual_noise_rate
+
+
+def noisify_label(true_label, num_classes=10, noise_type="symmetric"):
+    if noise_type == "symmetric":
+        label_lst = list(range(num_classes))
+        label_lst.remove(true_label)
+        return random.sample(label_lst, k=1)[0]
+    elif noise_type == "pairflip":
+        return (true_label - 1) % 10
