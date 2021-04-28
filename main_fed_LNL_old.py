@@ -13,7 +13,7 @@ import torch
 from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
 from utils.options import args_parser
 from models.Update import LocalUpdate
-from models.Nets import MLP, CNNMnist, CNNCifar
+from models.Nets import MLP, CNNMnist, CNNCifar, MobileNetCifar
 from models.Fed import FedAvg
 from models.test import test_img
 
@@ -40,7 +40,6 @@ if __name__ == '__main__':
         opener = urllib.request.build_opener()
         opener.addheaders = [('User-agent', 'Mozilla/5.0')]
         urllib.request.install_opener(opener)
-        
         
         trans_mnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
         
@@ -79,12 +78,27 @@ if __name__ == '__main__':
         else:
             dict_users = mnist_noniid(clearn_dataset_train, args.num_users)
     elif args.dataset == 'cifar':
-        trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        
+        trans_cifar10_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                          transforms.RandomHorizontalFlip(),
+                                          transforms.ToTensor(),
+                                          transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                               std=[0.229, 0.224, 0.225])])
+        trans_cifar10_val = transforms.Compose([transforms.ToTensor(),
+                                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                                     std=[0.229, 0.224, 0.225])])
+        trans_cifar100_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                                  transforms.RandomHorizontalFlip(),
+                                                  transforms.ToTensor(),
+                                                  transforms.Normalize(mean=[0.507, 0.487, 0.441],
+                                                                       std=[0.267, 0.256, 0.276])])
+        trans_cifar100_val = transforms.Compose([transforms.ToTensor(),
+                                                 transforms.Normalize(mean=[0.507, 0.487, 0.441],
+                                                                      std=[0.267, 0.256, 0.276])])
+
         dataset_train = CIFAR10(root='./data/cifar',
                                     download=True,  
                                     train=True, 
-                                    transform=trans_cifar,
+                                    transform=trans_cifar10_train,
                                     noise_type=args.noise_type,
                                     noise_rate=args.noise_rate
                                )
@@ -92,14 +106,14 @@ if __name__ == '__main__':
         clean_dataset_train = CIFAR10(root='./data/cifar',
                                     download=True,  
                                     train=True, 
-                                    transform=trans_cifar,
+                                    transform=trans_cifar10_train,
                                     noise_type="clean"
                                )
         
         dataset_test = CIFAR10(root='./data/cifar',
                                     download=True,  
                                     train=False, 
-                                    transform=trans_cifar,
+                                    transform=trans_cifar10_val,
                                     noise_type=args.noise_type,
                                     noise_rate=args.noise_rate
                               )
@@ -107,7 +121,7 @@ if __name__ == '__main__':
         clean_dataset_test = CIFAR10(root='./data/cifar',
                                     download=True,  
                                     train=False, 
-                                    transform=trans_cifar,
+                                    transform=trans_cifar10_val,
                                     noise_type="clean"
                               )
         
@@ -129,6 +143,8 @@ if __name__ == '__main__':
         for x in img_size:
             len_in *= x
         net_glob = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
+    elif args.model == "mobile":
+        net_glob = MobileNetCifar().to(args.device)
     else:
         exit('Error: unrecognized model')
     print(net_glob)
@@ -151,10 +167,12 @@ if __name__ == '__main__':
     else:
         result_dir = './save/{}/'.format(args.save_dir)
     
-    result_f = 'fedLNL_{}_{}_{}_C[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NR[{}].csv'.format(args.dataset, 
+    result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NR[{}].csv'.format(args.dataset, 
                                                                                        args.model, 
                                                                                        args.epochs, 
                                                                                        args.frac, 
+                                                                                       args.local_bs, 
+                                                                                       args.local_ep, 
                                                                                        args.iid,
                                                                                        args.lr,
                                                                                        args.momentum,

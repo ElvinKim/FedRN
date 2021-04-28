@@ -55,6 +55,12 @@ def args_parser():
     parser.add_argument('--num_gradual', type=int, help = 'T_k', default=10)
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
     
+    # MixMatch arguments
+    parser.add_argument('--mm_alpha', default=0.75, type=float)
+    parser.add_argument('--lambda_u', default=25, type=float, help='weight for unsupervised loss')
+    parser.add_argument('--T', default=0.5, type=float)
+    parser.add_argument('--p_threshold', default=0.5, type=float)
+    
     # save arguments
     parser.add_argument('--save_dir', type=str, default=None, help="name of save directory")
     
@@ -65,6 +71,8 @@ def args_parser():
         parser.add_argument('--begin', type=int, default=35, help='When to begin updating labels')
         
     # Joint Optimization arguments
+    parser.add_argument('--K', type=int, help = 'the number of history predictions', default=3)
+    
     if sys.argv[0] in ["main_fed_LNL_diff_NR.py", 'main_fed_diff_NR_JointOpt.py']:
         
         parser.add_argument('--alpha', type=float, default=1.2, help="alpha for joint optimization")

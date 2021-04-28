@@ -13,7 +13,7 @@ import torch
 from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
 from utils.options import args_parser
 from models.Update import LocalUpdate
-from models.Nets import MLP, CNNMnist, CNNCifar
+from models.Nets import MLP, CNNMnist, CNNCifar, MobileNetCifar, CNN
 from models.Fed import FedAvg
 from models.test import test_img
 
@@ -48,9 +48,25 @@ if __name__ == '__main__':
         else:
             dict_users = mnist_noniid(dataset_train, args.num_users)
     elif args.dataset == 'cifar':
-        trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        dataset_train = datasets.CIFAR10('./data/cifar', train=True, download=True, transform=trans_cifar)
-        dataset_test = datasets.CIFAR10('./data/cifar', train=False, download=True, transform=trans_cifar)
+        trans_cifar10_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                          transforms.RandomHorizontalFlip(),
+                                          transforms.ToTensor(),
+                                          transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                               std=[0.229, 0.224, 0.225])])
+        trans_cifar10_val = transforms.Compose([transforms.ToTensor(),
+                                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                                     std=[0.229, 0.224, 0.225])])
+        trans_cifar100_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                                  transforms.RandomHorizontalFlip(),
+                                                  transforms.ToTensor(),
+                                                  transforms.Normalize(mean=[0.507, 0.487, 0.441],
+                                                                       std=[0.267, 0.256, 0.276])])
+        trans_cifar100_val = transforms.Compose([transforms.ToTensor(),
+                                                 transforms.Normalize(mean=[0.507, 0.487, 0.441],
+                                                                      std=[0.267, 0.256, 0.276])])
+        
+        dataset_train = datasets.CIFAR10('./data/cifar', train=True, download=True, transform=trans_cifar10_train)
+        dataset_test = datasets.CIFAR10('./data/cifar', train=False, download=True, transform=trans_cifar10_val)
         if args.iid:
             dict_users = cifar_iid(dataset_train, args.num_users)
         else:
@@ -61,7 +77,10 @@ if __name__ == '__main__':
     
     # build model
     if args.model == 'cnn' and args.dataset == 'cifar':
-        net_glob = CNNCifar(args=args).to(args.device)
+        if args.reproduce:
+            net_glob = CNN(input_channel=args.num_channels, n_outputs=args.num_classes).to(args.device)
+        else:
+            net_glob = CNNCifar(args=args).to(args.device)
     elif args.model == 'cnn' and args.dataset == 'mnist':
         net_glob = CNNMnist(args=args).to(args.device)
     elif args.model == 'mlp':
@@ -69,6 +88,8 @@ if __name__ == '__main__':
         for x in img_size:
             len_in *= x
         net_glob = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
+    elif args.model == "mobile":
+        net_glob = MobileNetCifar().to(args.device)
     else:
         exit('Error: unrecognized model')
     print(net_glob)
@@ -92,13 +113,14 @@ if __name__ == '__main__':
     else:
         result_dir = './save/{}/'.format(args.save_dir)
     
-    result_f = 'fed_{}_{}_{}_C[{}]_IID[{}]_LR[{}]_MMT[{}].csv'.format(args.dataset, 
+    result_f = 'fed_{}_{}_{}_C[{}]_IID[{}]_LR[{}]_MMT[{}]_RP[{}].csv'.format(args.dataset, 
                                                                       args.model, 
                                                                       args.epochs, 
                                                                       args.frac, 
                                                                       args.iid,
                                                                       args.lr,
-                                                                      args.momentum)
+                                                                      args.momentum,
+                                                                      args.reproduce)
     
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)

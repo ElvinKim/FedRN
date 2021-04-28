@@ -12,16 +12,19 @@ import torch
 
 from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
 from utils.options import args_parser
-from models.Update import LocalUpdate, LocalUpdate_coteaching 
-from models.Nets import MLP, CNNMnist, CNNCifar, CNN
+from models.Update import LocalUpdate, LocalUpdateCoteaching 
+from models.Nets import MLP, CNNMnist, CNNCifar, CNN, MobileNetCifar
 from models.Fed import FedAvg
 from models.test import test_img
 
-from utils.cifar import CIFAR10, CIFAR100
+from utils.cifar import CIFAR10, CIFAR100, CIFAR10Basic
 from utils.mnist import MNIST
+
+from utils.utils import noisify_label
 
 import csv
 import os
+import random
 
 if __name__ == '__main__':
     # parse args
@@ -30,13 +33,6 @@ if __name__ == '__main__':
     # for Jang's GPU usage
     torch.cuda.set_device(args.device)
     
-    # Reproducing "Robust Fl with NLs"
-    if args.reproduce:
-        args.local_bs = 50
-        args.lr = 0.15
-        args.lr_decay = 1
-        args.weight_decay = 0.0001
-
     # Seed
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -44,9 +40,9 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
     
     # Co-teaching setup
-    forget_rate = args.noise_rate
+    forget_rate = args.forget_rate
     exponent = 1
-    num_gradual = args.num_gradual
+    num_gradual = int(args.epochs * 0.2)
     rate_schedule = np.ones(args.epochs)*forget_rate
     rate_schedule[:num_gradual] = np.linspace(0, forget_rate**exponent, num_gradual)
     
@@ -97,49 +93,58 @@ if __name__ == '__main__':
         else:
             dict_users = mnist_noniid(clearn_dataset_train, args.num_users)
     elif args.dataset == 'cifar':
-        if args.reproduce:
-            trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)), transforms.RandomCrop(32, padding=4), transforms.Resize(40)])
-        else:
-            trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    
-        dataset_train = CIFAR10(root='./data/cifar',
+        trans_cifar10_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                          transforms.RandomHorizontalFlip(),
+                                          transforms.ToTensor(),
+                                          transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                               std=[0.229, 0.224, 0.225])])
+        trans_cifar10_val = transforms.Compose([transforms.ToTensor(),
+                                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                                     std=[0.229, 0.224, 0.225])])
+        dataset_train = CIFAR10Basic(root='./data/cifar',
                                     download=True,  
                                     train=True, 
-                                    transform=trans_cifar,
-                                    noise_type=args.noise_type,
-                                    noise_rate=args.noise_rate
-                               )
+                                    transform=trans_cifar10_train)
         
-        clean_dataset_train = CIFAR10(root='./data/cifar',
-                                    download=True,  
-                                    train=True, 
-                                    transform=trans_cifar,
-                                    noise_type="clean"
-                               )
-        
-        dataset_test = CIFAR10(root='./data/cifar',
+        dataset_test = CIFAR10Basic(root='./data/cifar',
                                     download=True,  
                                     train=False, 
-                                    transform=trans_cifar,
-                                    noise_type=args.noise_type,
-                                    noise_rate=args.noise_rate
-                              )
-        
-        clean_dataset_test = CIFAR10(root='./data/cifar',
-                                    download=True,  
-                                    train=False, 
-                                    transform=trans_cifar,
-                                    noise_type="clean"
-                              )
+                                    transform=trans_cifar10_val)
         
         if args.iid:
-            dict_users = cifar_iid(clean_dataset_train, args.num_users)
+            dict_users = cifar_iid(dataset_train, args.num_users)
         else:
-            dict_users = cifar_noniid(clean_dataset_train, args.num_users)
+            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
 
+    # noisify step
+    if args.noise_type != "clean":
+        if sum(args.noise_group_num) != args.num_users:
+            exit('Error: sum of the number of noise group have to be equal the number of users')
+
+        noise_rate_lst = []
+
+        for noise_num, noise_rate in zip(args.noise_group_num, args.group_noise_rate):
+            temp_lst = [noise_rate] * noise_num
+            noise_rate_lst += temp_lst
+
+        for i in range(args.num_users):
+            d_idxs_lst = list(copy.deepcopy(dict_users[i]))
+            noise_rate = noise_rate_lst[i]
+
+            # for reproduction
+            random.seed(args.seed)
+            random.shuffle(d_idxs_lst)
+
+            noise_index = int(len(d_idxs_lst) * noise_rate)
+
+            for d_idx in d_idxs_lst[:noise_index]:
+                true_label = dataset_train.train_labels[d_idx]
+                update_label = noisify_label(true_label, num_classes=10, noise_type=args.noise_type)
+                dataset_train.train_labels[d_idx] = update_label
+    
     # build model
     if args.model == 'cnn' and args.dataset == 'cifar':
         if args.reproduce:
@@ -161,10 +166,12 @@ if __name__ == '__main__':
             len_in *= x
         net_glob1 = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
         net_glob2 = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
+    elif args.model == "mobile":
+        net_glob1 = MobileNetCifar().to(args.device)
+        net_glob2 = MobileNetCifar().to(args.device)
     else:
         exit('Error: unrecognized model')
-    print(net_glob1)
-    print(net_glob2)
+        
     net_glob1.train()
     net_glob2.train()
 
@@ -186,23 +193,49 @@ if __name__ == '__main__':
     else:
         result_dir = './save/{}/'.format(args.save_dir)
     
-    result_f = 'fedCoteaching_{}_{}_{}_C[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NR[{}]_Tk[{}]_RePr[{}].csv'.format(args.dataset, 
-                                                                                       args.model, 
-                                                                                       args.epochs, 
-                                                                                       args.frac, 
-                                                                                       args.iid,
-                                                                                       args.lr,
-                                                                                       args.momentum,
-                                                                                       args.noise_type,
-                                                                                       args.noise_rate,
-                                                                                       args.num_gradual,
-                                                                                       args.reproduce)
+    if args.iid:
+        result_f = 'coteaching_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_Tk[{}]_FR[{}]'.format(args.dataset, 
+                                                                                                     args.model, 
+                                                                                                     args.epochs, 
+                                                                                                     args.frac, 
+                                                                                                     args.local_bs, 
+                                                                                                     args.local_ep, 
+                                                                                                     args.iid,
+                                                                                                     args.lr,
+                                                                                                     args.momentum,
+                                                                                                     args.noise_type,
+                                                                                                     args.noise_group_num,
+                                                                                                     args.group_noise_rate,
+                                                                                                     args.partition,
+                                                                                                     num_gradual,
+                                                                                                     args.forget_rate)
+    else:
+        result_f = 'coteaching_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_Tk[{}]_FR[{}]'.format(args.dataset, 
+                                                                                                     args.model, 
+                                                                                                     args.epochs, 
+                                                                                                     args.frac, 
+                                                                                                     args.local_bs, 
+                                                                                                     args.local_ep, 
+                                                                                                     args.iid,
+                                                                                                     args.lr,
+                                                                                                     args.momentum,
+                                                                                                     args.noise_type,
+                                                                                                     args.noise_group_num,
+                                                                                                     args.group_noise_rate, 
+                                                                                                     num_gradual, 
+                                                                                                     args.forget_rate)
+    
+
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
      
-    f = open(result_dir + result_f,'w', newline='')
+    f = open(result_dir + result_f + ".csv",'w', newline='')
     wr = csv.writer(f)
-    wr.writerow(['epoch','train_acc', 'train_loss', 'test_acc', 'test_loss'])
+    wr.writerow(['epoch','train_acc1', 'train_acc2', 'train_loss1', 'train_loss2', 'test_acc1', 'test_acc2', 'test_loss1', 'test_loss2'])
+    
+    # Option Save
+    with open(result_dir + result_f + ".txt", 'w') as option_f:
+        option_f.write(str(args))
     
     if args.all_clients: 
         print("Aggregation over all clients")
@@ -220,14 +253,11 @@ if __name__ == '__main__':
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 
-        if (iter + 1) in args.schedule:
-            print("Learning Rate Decay Epoch {}".format(iter + 1))
-            print("{} => {}".format(args.lr, args.lr * args.lr_decay))
-            args.lr *= args.lr_decay
-            
         for idx in idxs_users:
-            local = LocalUpdate_coteaching(args=args, dataset=dataset_train, idxs=dict_users[idx])
-            w1, loss1, w2, loss2 = local.train_coteaching(net1=copy.deepcopy(net_glob1).to(args.device), net2=copy.deepcopy(net_glob2).to(args.device), rate_schedule=rate_schedule[iter])
+            local = LocalUpdateCoteaching(args=args, dataset=dataset_train, idxs=dict_users[idx])
+            w1, loss1, w2, loss2 = local.train_coteaching(net1=copy.deepcopy(net_glob1).to(args.device), 
+                                                          net2=copy.deepcopy(net_glob2).to(args.device), 
+                                                          rate_schedule=rate_schedule[iter])
             if args.all_clients:
                 w_locals1[idx] = copy.deepcopy(w1)
                 w_locals2[idx] = copy.deepcopy(w2)
@@ -254,17 +284,8 @@ if __name__ == '__main__':
         print('Round {:3d}'.format(iter))
         print("train acc1: {}, train loss1: {} \n train acc2: {}, train loss2: {} \n test acc1: {}, test loss1: {} \n test acc2: {}, test loss2: {}".format(acc_train1.item(), loss_train1, acc_train2.item(), loss_train2, acc_test1.item(), loss_test1, acc_test2.item(), loss_test2))
         
-        wr.writerow([iter + 1, max(acc_train1.item(), acc_train2.item()), min(loss_train1, loss_train2), max(acc_test1.item(), acc_test2.item()), min(loss_test1, loss_test2)])
+        wr.writerow([iter + 1, acc_train1.item(), acc_train2.item(), loss_train1, loss_train2, acc_test1.item(), acc_test2.item(), loss_test1, loss_test2])
         
-        if iter + 1 > args.epochs - 10:
-            last10_accuracies.append(max(acc_test1.item(), acc_test2.item()))
-        
-        if best_accuracy < max(acc_test1.item(), acc_test2.item()):
-            best_accuracy = max(acc_test1.item(), acc_test2.item())
-            
-    wr.writerow([])
-    wr.writerow(['best_acc', 'last10_acc'])
-    wr.writerow([best_accuracy, sum(last10_accuracies)/10])
     f.close()
 
 
