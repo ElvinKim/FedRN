@@ -2,30 +2,27 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
-import matplotlib
 
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+import csv
 import copy
 import numpy as np
+import os
+import random
+
 from torchvision import datasets, transforms
 import torch
 
-from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
+from utils.cifar import CIFAR10, CIFAR100, CIFAR10Basic
+from utils.mnist import MNIST
+from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
+from utils.utils import noisify_label
+
 from models.Update import LocalUpdate
 from models.Nets import MLP, CNNMnist, CNNCifar, MobileNetCifar
 from models.Fed import FedAvg
 from models.test import test_img
 
-from utils.cifar import CIFAR10, CIFAR100, CIFAR10Basic
-from utils.mnist import MNIST
-
-from utils.utils import noisify_label
-
-import csv
-import os
-import random
 
 if __name__ == '__main__':
     # parse args
@@ -54,37 +51,34 @@ if __name__ == '__main__':
             root='./data/mnist',
             download=True,
         )
-        clean_dataset_train = MNIST(
-            train=True,
-            transform=trans_mnist,
-            noise_type="clean",
-            **dataset_args,
-        )
         dataset_train = MNIST(
             train=True,
             transform=trans_mnist,
-            noise_type=args.noise_type,
-            noise_rate=args.noise_rate,
-            **dataset_args,
-        )
-        clean_dataset_test = MNIST(
-            train=False,
-            transform=transforms.ToTensor(),
             noise_type="clean",
             **dataset_args,
         )
         dataset_test = MNIST(
             train=False,
             transform=transforms.ToTensor(),
-            noise_type=args.noise_type,
-            noise_rate=args.noise_rate,
+            noise_type="clean",
             **dataset_args,
         )
-        # sample users
-        if args.iid:
-            dict_users = mnist_iid(clean_dataset_train, args.num_users)
-        else:
-            dict_users = mnist_noniid(clean_dataset_train, args.num_users)
+        num_classes = 10
+
+        # noisy_dataset_train = MNIST(
+        #     train=True,
+        #     transform=trans_mnist,
+        #     noise_type=args.noise_type,
+        #     noise_rate=args.noise_rate,
+        #     **dataset_args,
+        # )
+        # noisy_dataset_test = MNIST(
+        #     train=False,
+        #     transform=transforms.ToTensor(),
+        #     noise_type=args.noise_type,
+        #     noise_rate=args.noise_rate,
+        #     **dataset_args,
+        # )
 
     elif args.dataset == 'cifar':
         trans_cifar10_train = transforms.Compose([
@@ -111,43 +105,52 @@ if __name__ == '__main__':
             train=False,
             transform=trans_cifar10_val,
         )
+        num_classes = 10
 
-        if args.iid:
-            dict_users = cifar_iid(dataset_train, args.num_users)
-        else:
-            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
     else:
         raise NotImplementedError('Error: unrecognized dataset')
 
+    labels = np.array(dataset_train.train_labels)
+    num_imgs = len(dataset_train) // args.num_shards
     img_size = dataset_train[0][0].shape
 
+    # Sample users (iid / non-iid)
+    if args.iid:
+        dict_users = sample_iid(dataset_train, args.num_users)
+    else:
+        dict_users = sample_noniid(
+            labels=labels,
+            num_users=args.num_users,
+            num_shards=args.num_shards,
+            num_imgs=num_imgs,
+        )
+
     ##############################
-    # Noisify step
+    # Add label noise to data
     ##############################
-    if args.noise_type != "clean":
+    if args.noise_type != "clean" and args.group_noise_rate > 0:
         if sum(args.noise_group_num) != args.num_users:
             exit('Error: sum of the number of noise group have to be equal the number of users')
 
-        noise_rate_lst = []
-
-        for noise_num, noise_rate in zip(args.noise_group_num, args.group_noise_rate):
-            temp_lst = [noise_rate] * noise_num
-            noise_rate_lst += temp_lst
+        # noise rate for each user
+        user_noise_rates = []
+        for num_users_in_group, group_noise_rate in zip(args.noise_group_num, args.group_noise_rate):
+            user_noise_rates += [group_noise_rate] * num_users_in_group
 
         for i in range(args.num_users):
-            d_idxs_lst = list(copy.deepcopy(dict_users[i]))
-            noise_rate = noise_rate_lst[i]
+            data_indices = list(copy.deepcopy(dict_users[i]))
+            noise_rate = user_noise_rates[i]
 
             # for reproduction
             random.seed(args.seed)
-            random.shuffle(d_idxs_lst)
+            random.shuffle(data_indices)
 
-            noise_index = int(len(d_idxs_lst) * noise_rate)
+            noise_index = int(len(data_indices) * noise_rate)
 
-            for d_idx in d_idxs_lst[:noise_index]:
+            for d_idx in data_indices[:noise_index]:
                 true_label = dataset_train.train_labels[d_idx]
-                update_label = noisify_label(true_label, num_classes=10, noise_type=args.noise_type)
-                dataset_train.train_labels[d_idx] = update_label
+                noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
+                dataset_train.train_labels[d_idx] = noisy_label
 
     ##############################
     # Build model
@@ -240,8 +243,10 @@ if __name__ == '__main__':
 
     for epoch in range(args.epochs):
         loss_locals = []
+        # Reset local weights if necessary
         if not args.all_clients:
             w_locals = []
+
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 

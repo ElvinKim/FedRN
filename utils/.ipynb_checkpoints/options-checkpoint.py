@@ -45,7 +45,8 @@ def args_parser():
     parser.add_argument('--verbose', action='store_true', help='verbose print')
     parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
-    
+    parser.add_argument('--num_shards', type=int, default=200)
+
     # noise label arguments
     parser.add_argument('--noise_type', type=str, help='[pairflip, symmetric]', default='pairflip')
     parser.add_argument('--noise_group_num', nargs='+', default=[100], type=int)
