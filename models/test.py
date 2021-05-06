@@ -32,6 +32,7 @@ def test_img(net_g, datatest, args):
             test_loss, correct, len(data_loader.dataset), accuracy))
     return accuracy, test_loss
 
+
 def test_img_HS(net_g, datatest, args):
     net_g.eval()
     # testing
@@ -55,6 +56,7 @@ def test_img_HS(net_g, datatest, args):
         print('\nTest set: Average loss: {:.4f} \nAccuracy: {}/{} ({:.2f}%)\n'.format(
             test_loss, correct, len(data_loader.dataset), accuracy))
     return accuracy, test_loss
+
 
 def test_img_JO(net_g, datatest, args):
     net_g.eval()
