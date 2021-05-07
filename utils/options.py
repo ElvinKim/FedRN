@@ -53,9 +53,14 @@ def args_parser():
     parser.add_argument('--noise_type', type=str, help='[pairflip, symmetric]', default='pairflip')
     parser.add_argument('--noise_group_num', nargs='+', default=[100], type=int)
     parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float)
-    
+
+    # selfie arguments
+    parser.add_argument('--queue_size', type=int, default=15, help='size of history queue')
+    parser.add_argument('--warmup', type=int, default=25, help='number of warmup epochs')
+    parser.add_argument('--uncertainty_threshold', type=float, default=0.05, help='uncertainty threshold')
+
     # co-teaching arguments
-    parser.add_argument('--num_gradual', type=int, help = 'T_k', default=10)
+    parser.add_argument('--num_gradual', type=int, help='T_k', default=10)
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
     
     # MixMatch arguments
@@ -87,7 +92,9 @@ def args_parser():
     
     if sys.argv[0] in ["main_fed_LNL.py"]:
         parser.add_argument('--noise_rate', type=float, default=0.1, help="noise_rate")
-        
-    
+
     args = parser.parse_args()
     return args
+
+
+# python3 main_fed_LNL.py --dataset cifar --model mobile --epochs 300 --schedule 200 250 --save_dir cifar10 --noise_type symmetric --noise_rate 0.1  --save_dir ./cifar10/No_LNL/symmetric --iid --lr 0.1

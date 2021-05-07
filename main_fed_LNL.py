@@ -113,6 +113,7 @@ if __name__ == '__main__':
     labels = np.array(dataset_train.train_labels)
     num_imgs = len(dataset_train) // args.num_shards
     args.img_size = dataset_train[0][0].shape    # used to get model
+    args.num_classes = num_classes
 
     # Sample users (iid / non-iid)
     if args.iid:

@@ -12,6 +12,7 @@ import random
 from sklearn import metrics
 import copy
 from sklearn.mixture import GaussianMixture
+from .selfie_corrector import SelfieCorrector
 
 
 class DatasetSplit(Dataset):
@@ -246,12 +247,21 @@ class LocalUpdate(object):
 
 
 class LocalUpdateSELFIE(object):
-    def __init__(self, args, dataset=None, idxs=None):
+    def __init__(self, args, dataset=None, idxs=None, warmup=0):
         self.args = args
-        self.loss_func = nn.CrossEntropyLoss()
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs),
-                                    batch_size=self.args.local_bs,
-                                    shuffle=True)
+        self.loss_func = nn.CrossEntropyLoss(reduction='none')
+        self.ldr_train = DataLoader(
+            DatasetSplit(dataset, idxs, real_idx_return=True),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        self.warmup = warmup
+        self.corrector = SelfieCorrector(
+            queue_size=args.queue_size,
+            uncertainty_threshold=args.uncertainty_threshold,
+            noise_rate=args.noise_rate,
+            num_classes=args.num_classes,
+        )
 
     def train(self, net):
         net.train()
@@ -261,19 +271,46 @@ class LocalUpdateSELFIE(object):
         epoch_loss = []
         for iter in range(self.args.local_ep):
             batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
+            for batch_idx, batch in enumerate(self.ldr_train):
                 net.zero_grad()
+
+                images, labels, _, ids = batch
+                images = images.to(self.args.device)
+                labels = labels.to(self.args.device)
+
                 log_probs = net(images)
-                loss = self.loss_func(log_probs, labels)
+                loss_array = self.loss_func(log_probs, labels)
+
+                # update prediction history
+                self.corrector.update_prediction_history(
+                    ids=ids,
+                    outputs=log_probs.cpu().numpy(),
+                )
+
+                if iter >= self.warmup:
+                    # correct labels, remove noisy data
+                    images, labels = self.corrector.patch_clean_with_corrected_sample_batch(
+                        ids=ids,
+                        X=images,
+                        y=labels,
+                        loss_array=loss_array.cpu().numpy(),
+                    )
+                    images = images.to(self.args.device)
+                    labels = labels.to(self.args.device)
+                    log_probs = net(images)
+                    loss_array = self.loss_func(log_probs, labels)
+
+                loss = loss_array.mean()
                 loss.backward()
                 optimizer.step()
+
                 if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                              100. * batch_idx / len(self.ldr_train), loss.item()))
+                    print(f'Update Epoch: {iter} [{batch_idx * len(images)}/{len(self.ldr_train.dataset)} '
+                          f'({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}')
+
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
 
