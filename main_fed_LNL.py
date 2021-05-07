@@ -18,8 +18,8 @@ from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
 from utils.utils import noisify_label
 
-from models.Update import LocalUpdate
-from models.Nets import MLP, CNNMnist, CNNCifar, MobileNetCifar
+from models.Update import LocalUpdate, LocalUpdateSELFIE
+from models.Nets import get_model
 from models.Fed import FedAvg
 from models.test import test_img
 
@@ -112,7 +112,7 @@ if __name__ == '__main__':
 
     labels = np.array(dataset_train.train_labels)
     num_imgs = len(dataset_train) // args.num_shards
-    img_size = dataset_train[0][0].shape
+    args.img_size = dataset_train[0][0].shape    # used to get model
 
     # Sample users (iid / non-iid)
     if args.iid:
@@ -155,27 +155,10 @@ if __name__ == '__main__':
     ##############################
     # Build model
     ##############################
-    if args.model == 'cnn' and args.dataset == 'cifar':
-        net_glob = CNNCifar(args=args)
-
-    elif args.model == 'cnn' and args.dataset == 'mnist':
-        net_glob = CNNMnist(args=args)
-
-    elif args.model == 'mlp':
-        len_in = 1
-        for x in img_size:
-            len_in *= x
-        net_glob = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes)
-
-    elif args.model == "mobile":
-        net_glob = MobileNetCifar()
-
-    else:
-        raise NotImplementedError('Error: unrecognized model')
-
+    net_glob = get_model(args)
     net_glob = net_glob.to(args.device)
-    print(net_glob)
     net_glob.train()
+    print(net_glob)
 
     # copy weights
     w_glob = net_glob.state_dict()
@@ -197,8 +180,9 @@ if __name__ == '__main__':
         result_dir = './save/{}/'.format(args.save_dir)
 
     if args.iid:
-        result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
+        result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
             args.dataset,
+            args.method,
             args.model,
             args.epochs,
             args.frac,
@@ -212,8 +196,9 @@ if __name__ == '__main__':
             args.group_noise_rate,
             args.partition)
     else:
-        result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]'.format(
+        result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]'.format(
             args.dataset,
+            args.method,
             args.model,
             args.epochs,
             args.frac,
@@ -252,7 +237,13 @@ if __name__ == '__main__':
 
         # Local Update
         for idx in idxs_users:
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
+            if args.method == 'default':
+                local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
+
+            elif args.method == 'selfie':
+                local = LocalUpdateSELFIE(args=args, dataset=dataset_train, idxs=dict_users[idx])
+
+            # Local weights, losses
             w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
             if args.all_clients:
                 w_locals[idx] = copy.deepcopy(w)
@@ -263,10 +254,10 @@ if __name__ == '__main__':
         # Update global weights
         w_glob = FedAvg(w_locals)
 
-        # copy weight to net_glob
+        # Copy weight to net_glob
         net_glob.load_state_dict(w_glob)
 
-        # print result
+        # Print results
         net_glob.eval()
         acc_train, loss_train = test_img(net_glob, dataset_train, args)
         acc_test, loss_test = test_img(net_glob, dataset_test, args)

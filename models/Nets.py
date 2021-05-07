@@ -7,6 +7,28 @@ from torch import nn
 import torch.nn.functional as F
 
 
+def get_model(args):
+    if args.model == 'cnn' and args.dataset == 'cifar':
+        model = CNNCifar(args=args)
+
+    elif args.model == 'cnn' and args.dataset == 'mnist':
+        model = CNNMnist(args=args)
+
+    elif args.model == 'mlp':
+        len_in = 1
+        for x in args.img_size:
+            len_in *= x
+        model = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes)
+
+    elif args.model == "mobile":
+        model = MobileNetCifar()
+
+    else:
+        raise NotImplementedError('Error: unrecognized model')
+
+    return model
+
+
 class MLP(nn.Module):
     def __init__(self, dim_in, dim_hidden, dim_out):
         super(MLP, self).__init__()

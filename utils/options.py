@@ -8,6 +8,9 @@ import sys
 
 def args_parser():
     parser = argparse.ArgumentParser()
+    # label noise method
+    parser.add_argument('--method', type=str, default='default', choices=['default', 'selfie'], help='method name')
+
     # federated arguments
     parser.add_argument('--epochs', type=int, default=10, help="rounds of training")
     parser.add_argument('--num_users', type=int, default=100, help="number of users: K")
