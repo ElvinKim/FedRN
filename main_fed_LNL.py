@@ -22,6 +22,7 @@ from models.Update import LocalUpdate, LocalUpdateSELFIE
 from models.Nets import get_model
 from models.Fed import FedAvg
 from models.test import test_img
+import nsml
 
 
 if __name__ == '__main__':
@@ -262,13 +263,28 @@ if __name__ == '__main__':
         net_glob.eval()
         acc_train, loss_train = test_img(net_glob, dataset_train, args)
         acc_test, loss_test = test_img(net_glob, dataset_test, args)
+
+        acc_train = acc_train.item()
+        acc_test = acc_test.item()
+
+        if nsml.IS_ON_NSML:
+            nsml.report(
+                summary=True,
+                step=epoch,
+                epoch=epoch,
+                train__acc=acc_train,
+                train__loss=loss_train,
+                test__acc=acc_test,
+                test__loss=loss_test,
+            )
+
         print('Round {:3d}'.format(epoch))
         print("train acc: {}, train loss: {} \n test acc: {}, test loss: {}".format(
-            acc_train.item(),
+            acc_train,
             loss_train,
-            acc_test.item(),
+            acc_test,
             loss_test,
         ))
-        wr.writerow([epoch + 1, acc_train.item(), loss_train, acc_test.item(), loss_test])
+        wr.writerow([epoch + 1, acc_train, loss_train, acc_test, loss_test])
 
     f.close()
