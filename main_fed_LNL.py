@@ -18,7 +18,7 @@ from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
 from utils.utils import noisify_label
 
-from models.Update import LocalUpdate, init_local_update_objects_selfie
+from models.Update import get_local_update_objects
 from models.Nets import get_model
 from models.Fed import FedAvg
 from models.test import test_img
@@ -234,8 +234,7 @@ if __name__ == '__main__':
         print("Aggregation over all clients")
         w_locals = [w_glob for i in range(args.num_users)]
 
-    if args.method == 'selfie':
-        local_update_objects = init_local_update_objects_selfie(args, dataset_train, dict_users, user_noise_rates)
+    local_update_objects = get_local_update_objects(args, dataset_train, dict_users, user_noise_rates)
 
     # for logging purposes
     log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
@@ -257,12 +256,8 @@ if __name__ == '__main__':
 
         # Local Update
         for idx in idxs_users:
-            if args.method == 'default':
-                local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-
-            elif args.method == 'selfie':
-                local = local_update_objects[idx]
-                local.args = args
+            local = local_update_objects[idx]
+            local.args = args
 
             # Local weights, losses
             w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))

@@ -2,21 +2,6 @@ import numpy as np
 import operator
 
 
-class MiniBatch:
-    def __init__(self):
-        self.ids = []
-        self.images = []
-        self.labels = []
-
-    def append(self, id, image, label):
-        self.ids.append(id)
-        self.images.append(image)
-        self.labels.append(label)
-
-    def get_size(self):
-        return len(self.ids)
-
-
 class SelfieCorrector:
     def __init__(self, queue_size, uncertainty_threshold, noise_rate, num_classes):
         self.queue_size = queue_size
@@ -122,6 +107,6 @@ class SelfieCorrector:
         X, y = self.correct_and_select_certain_samples(ids, X, y, clean_batch, corrected_batch)
         return X, y
 
-    def predictions_clear(self):
+    def clear_predictions(self):
         self.prediction_history.clear()
         self.counts.clear()

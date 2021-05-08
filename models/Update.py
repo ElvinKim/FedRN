@@ -149,6 +149,29 @@ class GMixUnlabeled(Dataset):
             return image1, image2
 
 
+def get_local_update_objects(args, dataset_train, dict_users, noise_rates):
+    local_update_objects = []
+    for idx, noise_rate in zip(range(args.num_users), noise_rates):
+        if args.method == 'default':
+            local_update_object = LocalUpdate(
+                args=args,
+                dataset=dataset_train,
+                idxs=dict_users[idx],
+            )
+
+        elif args.method == 'selfie':
+            local_update_object = LocalUpdateSELFIE(
+                args=args,
+                dataset=dataset_train,
+                idxs=dict_users[idx],
+                noise_rate=noise_rate,
+            )
+
+        local_update_objects.append(local_update_object)
+
+    return local_update_objects
+
+
 def loss_coteaching(y_pred1, y_pred2, y_true, forget_rate, loss_func=None):
     loss_1 = loss_func(y_pred1, y_true)
     ind_1_sorted = np.argsort(loss_1.data.cpu()).cuda()
@@ -244,20 +267,6 @@ class LocalUpdate(object):
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
-
-
-def init_local_update_objects_selfie(args, dataset_train, dict_users, noise_rates):
-    local_update_objects = []
-    for idx, noise_rate in zip(range(args.num_users), noise_rates):
-        local_update_object = LocalUpdateSELFIE(
-            args=args,
-            dataset=dataset_train,
-            idxs=dict_users[idx],
-            noise_rate=noise_rate,
-        )
-        local_update_objects.append(local_update_object)
-
-    return local_update_objects
 
 
 class LocalUpdateSELFIE(object):

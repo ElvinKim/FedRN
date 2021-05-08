@@ -6,3 +6,4 @@ save_backup2/
 *.sh
 *.txt
 .idea
+nsml.py
