@@ -18,7 +18,7 @@ from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
 from utils.utils import noisify_label
 
-from models.Update import LocalUpdate, LocalUpdateSELFIE
+from models.Update import LocalUpdate, init_local_update_objects_selfie
 from models.Nets import get_model
 from models.Fed import FedAvg
 from models.test import test_img
@@ -29,6 +29,9 @@ if __name__ == '__main__':
     # parse args
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
+    args.schedule = [int(x) for x in args.schedule]
+    for x in vars(args).items():
+        print(x)
 
     # Seed
     torch.manual_seed(args.seed)
@@ -130,7 +133,7 @@ if __name__ == '__main__':
     ##############################
     # Add label noise to data
     ##############################
-    if args.noise_type != "clean" and args.group_noise_rate > 0:
+    if args.noise_type != "clean" and args.group_noise_rate:
         if sum(args.noise_group_num) != args.num_users:
             exit('Error: sum of the number of noise group have to be equal the number of users')
 
@@ -153,6 +156,9 @@ if __name__ == '__main__':
                 true_label = dataset_train.train_labels[d_idx]
                 noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
                 dataset_train.train_labels[d_idx] = noisy_label
+    else:
+        user_noise_rates = [0] * args.num_users
+    print(user_noise_rates)
 
     ##############################
     # Build model
@@ -228,7 +234,19 @@ if __name__ == '__main__':
         print("Aggregation over all clients")
         w_locals = [w_glob for i in range(args.num_users)]
 
+    if args.method == 'selfie':
+        local_update_objects = init_local_update_objects_selfie(args, dataset_train, dict_users, user_noise_rates)
+
+    # for logging purposes
+    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
+    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)
+
     for epoch in range(args.epochs):
+        if (epoch + 1) in args.schedule:
+            print("Learning Rate Decay Epoch {}".format(epoch + 1))
+            print("{} => {}".format(args.lr, args.lr * args.lr_decay))
+            args.lr *= args.lr_decay
+
         loss_locals = []
         # Reset local weights if necessary
         if not args.all_clients:
@@ -243,7 +261,8 @@ if __name__ == '__main__':
                 local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
 
             elif args.method == 'selfie':
-                local = LocalUpdateSELFIE(args=args, dataset=dataset_train, idxs=dict_users[idx])
+                local = local_update_objects[idx]
+                local.args = args
 
             # Local weights, losses
             w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
@@ -261,17 +280,15 @@ if __name__ == '__main__':
 
         # Print results
         net_glob.eval()
-        acc_train, loss_train = test_img(net_glob, dataset_train, args)
-        acc_test, loss_test = test_img(net_glob, dataset_test, args)
-
-        acc_train = acc_train.item()
-        acc_test = acc_test.item()
+        acc_train, loss_train = test_img(net_glob, log_train_data_loader, args)
+        acc_test, loss_test = test_img(net_glob, log_test_data_loader, args)
 
         if nsml.IS_ON_NSML:
             nsml.report(
                 summary=True,
                 step=epoch,
                 epoch=epoch,
+                lr=args.lr,
                 train__acc=acc_train,
                 train__loss=loss_train,
                 test__acc=acc_test,
@@ -279,7 +296,7 @@ if __name__ == '__main__':
             )
 
         print('Round {:3d}'.format(epoch))
-        print("train acc: {}, train loss: {} \n test acc: {}, test loss: {}".format(
+        print("train acc: {}, train loss: {:.6f} \ntest acc: {}, test loss: {:.6f}".format(
             acc_train,
             loss_train,
             acc_test,

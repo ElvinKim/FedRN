@@ -246,8 +246,22 @@ class LocalUpdate(object):
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
 
+def init_local_update_objects_selfie(args, dataset_train, dict_users, noise_rates):
+    local_update_objects = []
+    for idx, noise_rate in zip(range(args.num_users), noise_rates):
+        local_update_object = LocalUpdateSELFIE(
+            args=args,
+            dataset=dataset_train,
+            idxs=dict_users[idx],
+            noise_rate=noise_rate,
+        )
+        local_update_objects.append(local_update_object)
+
+    return local_update_objects
+
+
 class LocalUpdateSELFIE(object):
-    def __init__(self, args, dataset=None, idxs=None, warmup=0):
+    def __init__(self, args, dataset=None, idxs=None, noise_rate=0):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss(reduction='none')
         self.ldr_train = DataLoader(
@@ -255,11 +269,12 @@ class LocalUpdateSELFIE(object):
             batch_size=self.args.local_bs,
             shuffle=True,
         )
-        self.warmup = warmup
+        self.total_epochs = 0
+        self.warmup = args.warmup_epochs
         self.corrector = SelfieCorrector(
             queue_size=args.queue_size,
             uncertainty_threshold=args.uncertainty_threshold,
-            noise_rate=args.noise_rate,
+            noise_rate=noise_rate,
             num_classes=args.num_classes,
         )
 
@@ -277,6 +292,7 @@ class LocalUpdateSELFIE(object):
                 images, labels, _, ids = batch
                 images = images.to(self.args.device)
                 labels = labels.to(self.args.device)
+                ids = ids.numpy()
 
                 log_probs = net(images)
                 loss_array = self.loss_func(log_probs, labels)
@@ -284,16 +300,16 @@ class LocalUpdateSELFIE(object):
                 # update prediction history
                 self.corrector.update_prediction_history(
                     ids=ids,
-                    outputs=log_probs.cpu().numpy(),
+                    outputs=log_probs.cpu().detach().numpy(),
                 )
 
-                if iter >= self.warmup:
+                if self.total_epochs >= self.warmup:
                     # correct labels, remove noisy data
                     images, labels = self.corrector.patch_clean_with_corrected_sample_batch(
                         ids=ids,
                         X=images,
                         y=labels,
-                        loss_array=loss_array.cpu().numpy(),
+                        loss_array=loss_array.cpu().detach().numpy(),
                     )
                     images = images.to(self.args.device)
                     labels = labels.to(self.args.device)
@@ -305,11 +321,13 @@ class LocalUpdateSELFIE(object):
                 optimizer.step()
 
                 if self.args.verbose and batch_idx % 10 == 0:
-                    print(f'Update Epoch: {iter} [{batch_idx * len(images)}/{len(self.ldr_train.dataset)} '
-                          f'({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}')
+                    print(f"Update Epoch: {iter} [{batch_idx * len(images)}/{len(self.ldr_train.dataset)}"
+                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
 
                 batch_loss.append(loss.item())
+
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
+            self.total_epochs += 1
 
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 

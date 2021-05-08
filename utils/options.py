@@ -21,11 +21,12 @@ def args_parser():
     parser.add_argument('--lr', type=float, default=0.01, help="learning rate")
     parser.add_argument('--momentum', type=float, default=0.5, help="SGD momentum (default: 0.5)")
     parser.add_argument('--split', type=str, default='user', help="train-test split type, user or sample")
-#     parser.add_argument('--schedule', nargs='+', default=[50, 80], help='decrease learning rate at these epochs.')
+    parser.add_argument('--schedule', nargs='+', default=[50, 80], help='decrease learning rate at these epochs.')
     parser.add_argument('--lr_decay', type=float, default=0.1, help="learning rate decay")
     parser.add_argument('--weight_decay', type=float, default=0, help="sgd weight decay")
     parser.add_argument('--partition', type=str, help='[label2, labeldir]', default='label2')
     parser.add_argument('--dd_alpha', type=float, default=1.0, help="dirichlet distribution alpha")
+    parser.add_argument('--num_shards', type=int, default=200, help="number of shards")
 
     # model arguments
     parser.add_argument('--model', type=str, default='mlp', help='model name')
@@ -56,7 +57,7 @@ def args_parser():
 
     # selfie arguments
     parser.add_argument('--queue_size', type=int, default=15, help='size of history queue')
-    parser.add_argument('--warmup', type=int, default=25, help='number of warmup epochs')
+    parser.add_argument('--warmup_epochs', type=int, default=25, help='number of warmup epochs')
     parser.add_argument('--uncertainty_threshold', type=float, default=0.05, help='uncertainty threshold')
 
     # co-teaching arguments
@@ -95,6 +96,3 @@ def args_parser():
 
     args = parser.parse_args()
     return args
-
-
-# python3 main_fed_LNL.py --dataset cifar --model mobile --epochs 300 --schedule 200 250 --save_dir cifar10 --noise_type symmetric --noise_rate 0.1  --save_dir ./cifar10/No_LNL/symmetric --iid --lr 0.1

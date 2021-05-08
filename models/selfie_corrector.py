@@ -101,9 +101,8 @@ class SelfieCorrector:
         id_2_index = {_id: i for i, _id in enumerate(ids)}
 
         # Correct samples
-        for k in y:
-            for _id in corrected_batch:
-                y[k][id_2_index[_id]] = self.corrected_labels[_id]
+        for _id in corrected_batch:
+            y[id_2_index[_id]] = int(self.corrected_labels[_id])
 
         # Select high certainty samples
         high_certainty_samples = set(clean_batch) | set(corrected_batch)
