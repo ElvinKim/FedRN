@@ -13,6 +13,7 @@ from sklearn import metrics
 import copy
 from sklearn.mixture import GaussianMixture
 from .selfie_corrector import SelfieCorrector
+from .joint_optim_corrector import JointOptimCorrector
 
 
 class DatasetSplit(Dataset):
@@ -167,6 +168,13 @@ def get_local_update_objects(args, dataset_train, dict_users, noise_rates):
                 noise_rate=noise_rate,
             )
 
+        elif args.method == 'jointoptim':
+            local_update_object = LocalUpdateJointOptim(
+                args=args,
+                dataset=dataset_train,
+                idxs=dict_users[idx],
+            )
+
         local_update_objects.append(local_update_object)
 
     return local_update_objects
@@ -243,7 +251,11 @@ class LocalUpdate(object):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
         self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
+        self.ldr_train = DataLoader(
+            DatasetSplit(dataset, idxs),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
 
     def train(self, net):
         net.train()
@@ -341,66 +353,83 @@ class LocalUpdateSELFIE(object):
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
 
-class LocalUpdateJO(object):
-    def __init__(self, args, dataset=None, idxs=None, results=None):
+class LocalUpdateJointOptim(object):
+    def __init__(self, args, dataset=None, idxs=None):
         self.args = args
-        self.loss_func = nn.CrossEntropyLoss()
-        self.selected_clients = []
-        self.dataset = dataset
+        self.ldr_train = DataLoader(
+            DatasetSplit(dataset, idxs, real_idx_return=True),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        self.total_epochs = 0
+        self.stop_update_epoch = args.stop_update_epoch
+        self.corrector = JointOptimCorrector(
+            queue_size=args.K,
+            num_classes=args.num_classes,
+            data_size=len(idxs),
+        )
 
-        train_data_lst = []
-        for idx in idxs:
-            train_data_lst.append(dataset[idx])
+    def loss_func(self, logits, probs, soft_targets, is_cross_entropy=False):
+        if is_cross_entropy:
+            loss = -torch.mean(torch.sum(F.log_softmax(logits, dim=1) * soft_targets, dim=1))
 
-        self.ldr_train = DataLoader(train_data_lst, batch_size=self.args.local_bs, shuffle=True)
-        self.args = args
-        self.results = results
+        else:
+            # We introduce a prior probability distribution p, which is a distribution of classes among all training data.
+            p = torch.ones(self.args.num_classes).cuda() / self.args.num_classes
 
-    def train(self, net, g_epoch=0):
+            avg_probs = torch.mean(probs, dim=0)
+
+            L_c = -torch.mean(torch.sum(F.log_softmax(logits, dim=1) * soft_targets, dim=1))
+            L_p = -torch.sum(torch.log(avg_probs) * p)
+            L_e = -torch.mean(torch.sum(F.log_softmax(logits, dim=1) * probs, dim=1))
+
+            loss = L_c + self.args.alpha * L_p + self.args.beta * L_e
+
+        return loss
+
+    def train(self, net):
         net.train()
         # train and update
         optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
 
         epoch_loss = []
         for iter in range(self.args.local_ep):
+            is_loss_cross_entropy = self.total_epochs >= self.stop_update_epoch
+
             batch_loss = []
+            for batch_idx, batch in enumerate(self.ldr_train):
+                net.zero_grad()
 
-            for batch_idx, (images, labels, soft_targets, indexs) in enumerate(self.ldr_train):
-                images, labels, soft_targets = images.to(self.args.device), labels.to(
-                    self.args.device), soft_targets.to(self.args.device)
-                outputs = net(images)
+                images, labels, _, ids = batch
+                ids = ids.numpy()
 
-                probs, loss = self.mycriterion(outputs, soft_targets)
+                _, soft_labels = self.corrector.get_labels(ids, labels)
+                soft_labels = soft_labels.to(self.args.device)
+                images = images.to(self.args.device)
 
-                if g_epoch >= self.args.begin:
-                    self.dataset.soft_labels[
-                        indexs.cpu().detach().numpy().tolist()] = probs.cpu().detach().numpy().tolist()
+                logits = net(images)
+                probs = F.softmax(logits, dim=1)
+                loss = self.loss_func(logits, probs, soft_labels, is_cross_entropy=is_loss_cross_entropy)
 
                 net.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+                self.corrector.update_probability_history(ids, probs.cpu().detach())
+
                 if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                              100. * batch_idx / len(self.ldr_train), loss.item()))
+                    print(f"Update Epoch: {iter} [{batch_idx * len(images)}/{len(self.ldr_train.dataset)}"
+                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
+
                 batch_loss.append(loss.item())
+
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
+            self.total_epochs += 1
 
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.results, self.dataset
+            if self.args.begin_update_epoch <= self.total_epochs < self.args.stop_update_epoch:
+                self.corrector.update_labels()
 
-    def mycriterion(self, outputs, soft_targets):
-        # We introduce a prior probability distribution p, which is a distribution of classes among all training data.
-        p = torch.ones(10).cuda() / 10
-
-        probs = F.softmax(outputs, dim=1)
-        avg_probs = torch.mean(probs, dim=0)
-
-        L_c = -torch.mean(torch.sum(F.log_softmax(outputs, dim=1) * soft_targets, dim=1))
-        L_p = -torch.sum(torch.log(avg_probs) * p)
-        L_e = -torch.mean(torch.sum(F.log_softmax(outputs, dim=1) * probs, dim=1))
-
-        loss = L_c + self.args.alpha * L_p + self.args.beta * L_e
-        return probs, loss
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
 
 class LocalUpdateCoteaching(object):
