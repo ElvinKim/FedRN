@@ -225,6 +225,7 @@ if __name__ == '__main__':
             else:
                 w_locals.append(copy.deepcopy(w))
             loss_locals.append(copy.deepcopy(loss))
+            
         # update global weights
         w_glob = FedAvg(w_locals)
 

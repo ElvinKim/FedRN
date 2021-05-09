@@ -13,15 +13,18 @@ import torch
 from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
 from utils.options import args_parser
 from models.Update import LocalUpdate, LocalUpdateLGFineTuning
-from models.Nets import MLP, CNNMnist, CNNCifar, CNN
+from models.Nets import MLP, CNNMnist, CNNCifar, MobileNetCifar
 from models.Fed import FedAvg
 from models.test import test_img
 
-from utils.cifar import CIFAR10, CIFAR100
+from utils.cifar import CIFAR10, CIFAR100, CIFAR10Basic
 from utils.mnist import MNIST
+
+from utils.utils import noisify_label
 
 import csv
 import os
+import random
 
 if __name__ == '__main__':
     # parse args
@@ -43,8 +46,11 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     np.random.seed(args.seed)
     
+    
     # Co-teaching setup
-    forget_rate = args.noise_rate
+    
+    args.num_gradual = int(args.epochs * 0.2)
+    forget_rate = args.forget_rate
     exponent = 1
     num_gradual = args.num_gradual
     rate_schedule = np.ones(args.epochs)*forget_rate
@@ -99,48 +105,57 @@ if __name__ == '__main__':
         else:
             dict_users = mnist_noniid(clearn_dataset_train, args.num_users)
     elif args.dataset == 'cifar':
-        if args.reproduce:
-            trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)), transforms.RandomCrop(32, padding=4), transforms.Resize(40)])
-        else:
-            trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    
-        dataset_train = CIFAR10(root='./data/cifar',
+        trans_cifar10_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                          transforms.RandomHorizontalFlip(),
+                                          transforms.ToTensor(),
+                                          transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                               std=[0.229, 0.224, 0.225])])
+        trans_cifar10_val = transforms.Compose([transforms.ToTensor(),
+                                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                                     std=[0.229, 0.224, 0.225])])
+        dataset_train = CIFAR10Basic(root='./data/cifar',
                                     download=True,  
                                     train=True, 
-                                    transform=trans_cifar,
-                                    noise_type=args.noise_type,
-                                    noise_rate=args.noise_rate
-                               )
+                                    transform=trans_cifar10_train)
         
-        clean_dataset_train = CIFAR10(root='./data/cifar',
-                                    download=True,  
-                                    train=True, 
-                                    transform=trans_cifar,
-                                    noise_type="clean"
-                               )
-        
-        dataset_test = CIFAR10(root='./data/cifar',
+        dataset_test = CIFAR10Basic(root='./data/cifar',
                                     download=True,  
                                     train=False, 
-                                    transform=trans_cifar,
-                                    noise_type=args.noise_type,
-                                    noise_rate=args.noise_rate
-                              )
-        
-        clean_dataset_test = CIFAR10(root='./data/cifar',
-                                    download=True,  
-                                    train=False, 
-                                    transform=trans_cifar,
-                                    noise_type="clean"
-                              )
+                                    transform=trans_cifar10_val)
         
         if args.iid:
-            dict_users = cifar_iid(clean_dataset_train, args.num_users)
+            dict_users = cifar_iid(dataset_train, args.num_users)
         else:
-            dict_users = cifar_noniid(clean_dataset_train, args.num_users)
+            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
+
+    # noisify step
+    if args.noise_type != "clean":
+        if sum(args.noise_group_num) != args.num_users:
+            exit('Error: sum of the number of noise group have to be equal the number of users')
+
+        noise_rate_lst = []
+
+        for noise_num, noise_rate in zip(args.noise_group_num, args.group_noise_rate):
+            temp_lst = [noise_rate] * noise_num
+            noise_rate_lst += temp_lst
+
+        for i in range(args.num_users):
+            d_idxs_lst = list(copy.deepcopy(dict_users[i]))
+            noise_rate = noise_rate_lst[i]
+
+            # for reproduction
+            random.seed(args.seed)
+            random.shuffle(d_idxs_lst)
+
+            noise_index = int(len(d_idxs_lst) * noise_rate)
+
+            for d_idx in d_idxs_lst[:noise_index]:
+                true_label = dataset_train.train_labels[d_idx]
+                update_label = noisify_label(true_label, num_classes=10, noise_type=args.noise_type)
+                dataset_train.train_labels[d_idx] = update_label
 
     # build model
     if args.model == 'cnn' and args.dataset == 'cifar':
@@ -163,6 +178,9 @@ if __name__ == '__main__':
             len_in *= x
         net_glob = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
         net_local = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
+    elif args.model == "mobile":
+        net_glob = MobileNetCifar().to(args.device)
+        net_local = MobileNetCifar().to(args.device)
     else:
         exit('Error: unrecognized model')
         
@@ -178,19 +196,6 @@ if __name__ == '__main__':
         w_local_lst.append(copy.deepcopy(w_glob))
     
     
-    # Local Warm-up
-    backup_local_ep = args.local_ep
-    args.local_ep = 10
-    
-    for idx in range(args.num_users):
-        print("client warm-up", idx)
-        local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-        net_local.load_state_dict(w_local_lst[idx])
-        w, loss = local.train(net=copy.deepcopy(net_local).to(args.device))
-        w_local_lst[idx] = copy.deepcopy(w)
-        
-    args.local_ep = backup_local_ep
-        
     # training
     loss_train = []
     cv_loss, cv_acc = [], []
@@ -205,24 +210,44 @@ if __name__ == '__main__':
     else:
         result_dir = './save/{}/'.format(args.save_dir)
     
-    result_f = 'fed_LG_finetuning_{}_G[{}]_L[{}]_{}_C[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NR[{}]_Tk[{}]_FTLE[{}].csv'.format(args.dataset, 
-                                                                                       args.model, 
-                                                                                       args.model, 
-                                                                                       args.epochs, 
-                                                                                       args.frac, 
-                                                                                       args.iid,
-                                                                                       args.lr,
-                                                                                       args.momentum,
-                                                                                       args.noise_type,
-                                                                                       args.noise_rate,
-                                                                                       args.num_gradual, 
-                                                                                       args.ft_local_ep)
+    if args.iid:
+        result_f = '{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(args.dataset, 
+                                                                                                     args.model, 
+                                                                                                     args.epochs, 
+                                                                                                     args.frac, 
+                                                                                                     args.local_bs, 
+                                                                                                     args.local_ep, 
+                                                                                                     args.iid,
+                                                                                                     args.lr,
+                                                                                                     args.momentum,
+                                                                                                     args.noise_type,
+                                                                                                     args.noise_group_num,
+                                                                                                     args.group_noise_rate,
+                                                                                                     args.partition)
+    else:
+        result_f = '{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]'.format(args.dataset, 
+                                                                                                     args.model, 
+                                                                                                     args.epochs, 
+                                                                                                     args.frac, 
+                                                                                                     args.local_bs, 
+                                                                                                     args.local_ep, 
+                                                                                                     args.iid,
+                                                                                                     args.lr,
+                                                                                                     args.momentum,
+                                                                                                     args.noise_type,
+                                                                                                     args.noise_group_num,
+                                                                                                     args.group_noise_rate)
+
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
      
-    f = open(result_dir + result_f,'w', newline='')
+    f = open(result_dir + result_f + ".csv", 'w', newline='')
     wr = csv.writer(f)
     wr.writerow(['epoch','train_acc', 'train_loss', 'test_acc', 'test_loss'])
+    
+    # Option Save
+    with open(result_dir + result_f + ".txt", 'w') as option_f:
+        option_f.write(str(args)) 
     
     if args.all_clients: 
         print("Aggregation over all clients")
@@ -237,11 +262,6 @@ if __name__ == '__main__':
             
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-
-        if (iter + 1) in args.schedule:
-            print("Learning Rate Decay Epoch {}".format(iter + 1))
-            print("{} => {}".format(args.lr, args.lr * args.lr_decay))
-            args.lr *= args.lr_decay
             
         for idx in idxs_users:
             local = LocalUpdateLGFineTuning(args=args, dataset=dataset_train, idxs=dict_users[idx])

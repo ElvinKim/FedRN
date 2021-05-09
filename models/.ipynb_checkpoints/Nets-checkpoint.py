@@ -149,12 +149,13 @@ class MobileNetCifar(nn.Module):
     # (128,2) means conv planes=128, conv stride=2, by default conv stride=1
     cfg = [64, (128,2), 128, (256,2), 256, (512,2), 512, 512, 512, 512, 512, (1024,2), 1024]
 
-    def __init__(self, num_classes=10):
+    def __init__(self, num_classes=10, return_feature=False):
         super(MobileNetCifar, self).__init__()
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(32, track_running_stats=False)
         self.layers = self._make_layers(in_planes=32)
         self.linear = nn.Linear(1024, num_classes)
+        self.return_feature = return_feature
 
     def _make_layers(self, in_planes):
         layers = []
@@ -172,7 +173,10 @@ class MobileNetCifar(nn.Module):
         out = out.view(out.size(0), -1)
         logits = self.linear(out)
         
-        return logits
+        if self.return_feature:
+            return logits, self.extract_features(x)
+        else:
+            return logits
     
     def extract_features(self, x):
         out = F.relu(self.bn1(self.conv1(x)))

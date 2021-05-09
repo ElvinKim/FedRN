@@ -212,6 +212,7 @@ def loss_coteaching_plus(logits, logits2, labels, forget_rate, ind, step, loss_f
         loss_2 = torch.sum(update_step*cross_entropy_2)/labels.size()[0]
     return loss_1, loss_2
     
+    
 class LocalUpdate(object):
     def __init__(self, args, dataset=None, idxs=None):
         self.args = args
@@ -479,7 +480,7 @@ class LocalUpdateLGFineTuning(object):
         l_optimizer = torch.optim.SGD(l_net.parameters(), lr=self.args.lr, momentum=self.args.momentum, weight_decay=self.args.weight_decay)
 
         # fine-tuning
-        for iter in range(self.args.ft_local_ep):
+        for _ in range(self.args.ft_local_ep):
             for batch_idx, (images, labels, indexes) in enumerate(self.ldr_train):
                 images, labels = images.to(self.args.device), labels.to(self.args.device)
                 l_net.zero_grad()
@@ -511,22 +512,30 @@ class LocalUpdateLGFineTuning(object):
             filtered_train_data.append((dataset[i][0], dataset[i][1]))
             
         trainloader = DataLoader(filtered_train_data, batch_size=self.args.local_bs, shuffle=True)
+        
+        iter_num = int(self.args.epochs / self.args.local_bs)
+        
+        batch_iter = iter(trainloader)
 
         epoch_loss = []
                                       
-        for iter in range(self.args.local_ep):
+        for local_ep in range(self.args.local_ep):
             batch_loss = []
-            for batch_idx, (images, labels) in enumerate(trainloader):
+            
+            for _ in range(iter_num):
+                try:
+                    images, labels = batch_iter.next()
+                except:
+                    batch_iter = iter(trainloader)
+                    images, labels = batch_iter.next()
+                    
                 images, labels = images.to(self.args.device), labels.to(self.args.device)
                 g_net.zero_grad()
                 log_probs = g_net(images)
                 loss = loss_func(log_probs, labels)
                 loss.backward()
                 g_optimizer.step()
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                               100. * batch_idx / len(self.ldr_train), loss.item()))
+                
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
         return g_net.state_dict(), l_net.state_dict(), sum(epoch_loss) / len(epoch_loss)
@@ -1154,3 +1163,80 @@ class LocalUpdateHS(object):
         return self.loss_func(F.softmax(outputs), soft_targets)
         
         
+class LocalUpdateRFL(object):
+    def __init__(self, args, dataset=None, idxs=None, glob_centroid=None):
+        self.args = args
+        self.loss_func = nn.CrossEntropyLoss()
+        self.selected_clients = []
+        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
+        self.glob_centroid = glob_centroid
+    
+    
+    def warm_up(self, net):
+        pass
+        
+        
+    def train(self, net):
+        net.train()
+        # train and update
+        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+        
+        epoch_loss = []
+        for iter in range(self.args.local_ep):
+            batch_loss = []
+            for batch_idx, (images, labels) in enumerate(self.ldr_train):
+                images, labels = images.to(self.args.device), labels.to(self.args.device)
+                net.zero_grad()
+                log_probs, features = net(images)
+                loss = self.loss_func(log_probs, labels)
+                loss.backward()
+                optimizer.step()
+                if self.args.verbose and batch_idx % 10 == 0:
+                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
+                               100. * batch_idx / len(self.ldr_train), loss.item()))
+                batch_loss.append(loss.item())
+            epoch_loss.append(sum(batch_loss)/len(batch_loss))
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+
+    
+class LocalUpdateFedProx(object):
+    def __init__(self, args, dataset=None, idxs=None):
+        self.args = args
+        self.loss_func = nn.CrossEntropyLoss()
+        self.selected_clients = []
+        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
+        
+    def train(self, net, mu=0.01):
+        net.train()
+        # train and update
+        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+        
+        epoch_loss = []
+        
+        glob_net = copy.deepcopy(net)
+        
+        for iter in range(self.args.local_ep):
+            batch_loss = []
+            for batch_idx, (images, labels) in enumerate(self.ldr_train):
+                images, labels = images.to(self.args.device), labels.to(self.args.device)
+                net.zero_grad()
+                log_probs = net(images)
+                loss = self.loss_func(log_probs, labels)
+                
+                #for fedprox
+                fed_prox_reg = 0.0
+                for l_param, g_param in zip(net.parameters(), glob_net.parameters()):
+                    fed_prox_reg += (mu  * torch.norm((l_param - g_param))**2)
+                    
+                loss += fed_prox_reg
+                
+                loss.backward()
+                optimizer.step()
+                if self.args.verbose and batch_idx % 10 == 0:
+                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
+                               100. * batch_idx / len(self.ldr_train), loss.item()))
+                batch_loss.append(loss.item())
+            epoch_loss.append(sum(batch_loss)/len(batch_loss))
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)

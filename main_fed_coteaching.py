@@ -189,9 +189,9 @@ if __name__ == '__main__':
    
     # save results
     if args.save_dir is None:
-        result_dir = './save/'
+        result_dir = './save/IID_{}/'.format(args.iid)
     else:
-        result_dir = './save/{}/'.format(args.save_dir)
+        result_dir = './save/{}/IID_{}/'.format(args.save_dir, args.iid)
     
     if args.iid:
         result_f = 'coteaching_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_Tk[{}]_FR[{}]'.format(args.dataset, 
