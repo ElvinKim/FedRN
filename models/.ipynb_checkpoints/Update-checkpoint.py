@@ -470,10 +470,6 @@ class LocalUpdateLGFineTuning(object):
         g_w = g_net.state_dict()
         l_w = l_net.state_dict()
         
-        for key in g_w.keys():
-            if 'fc3' not in key:
-                l_w[key] = copy.deepcopy(g_w[key])
-        
         l_net.load_state_dict(l_w)
         
         g_optimizer = torch.optim.SGD(g_net.parameters(), lr=self.args.lr, momentum=self.args.momentum, weight_decay=self.args.weight_decay)

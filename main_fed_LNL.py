@@ -102,7 +102,7 @@ if __name__ == '__main__':
         if args.iid:
             dict_users = cifar_iid(dataset_train, args.num_users)
         else:
-            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
+            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition, beta=args.dd_alpha)
     else:
         exit('Error: unrecognized dataset')
         
@@ -169,20 +169,6 @@ if __name__ == '__main__':
         result_dir = './save/{}/'.format(args.save_dir)
     
     if args.iid:
-        result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(args.dataset, 
-                                                                                                     args.model, 
-                                                                                                     args.epochs, 
-                                                                                                     args.frac, 
-                                                                                                     args.local_bs, 
-                                                                                                     args.local_ep, 
-                                                                                                     args.iid,
-                                                                                                     args.lr,
-                                                                                                     args.momentum,
-                                                                                                     args.noise_type,
-                                                                                                     args.noise_group_num,
-                                                                                                     args.group_noise_rate,
-                                                                                                     args.partition)
-    else:
         result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]'.format(args.dataset, 
                                                                                                      args.model, 
                                                                                                      args.epochs, 
@@ -195,6 +181,20 @@ if __name__ == '__main__':
                                                                                                      args.noise_type,
                                                                                                      args.noise_group_num,
                                                                                                      args.group_noise_rate)
+    else:
+        result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(args.dataset, 
+                                                                                                     args.model, 
+                                                                                                     args.epochs, 
+                                                                                                     args.frac, 
+                                                                                                     args.local_bs, 
+                                                                                                     args.local_ep, 
+                                                                                                     args.iid,
+                                                                                                     args.lr,
+                                                                                                     args.momentum,
+                                                                                                     args.noise_type,
+                                                                                                     args.noise_group_num,
+                                                                                                     args.group_noise_rate, 
+                                                                                                     args.partition)
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)

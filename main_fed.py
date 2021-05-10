@@ -70,7 +70,7 @@ if __name__ == '__main__':
         if args.iid:
             dict_users = cifar_iid(dataset_train, args.num_users)
         else:
-            dict_users = cifar_noniid(dataset_train, args.num_users)
+            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
@@ -138,11 +138,6 @@ if __name__ == '__main__':
             w_locals = []
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-        
-        if (iter + 1) in args.schedule:
-            print("Learning Rate Decay Epoch {}".format(iter + 1))
-            print("{} => {}".format(args.lr, args.lr * args.lr_decay))
-            args.lr *= args.lr_decay
         
         for idx in idxs_users:
             local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])

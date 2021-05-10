@@ -22,7 +22,7 @@ def args_parser():
     parser.add_argument('--lr_decay', type=float, default=0.1, help="learning rate decay")
     parser.add_argument('--weight_decay', type=float, default=0, help="sgd weight decay")
     parser.add_argument('--partition', type=str, help='[label2, labeldir]', default='label2')
-    parser.add_argument('--dd_alpha', type=float, default=1.0, help="dirichlet distribution alpha")
+    parser.add_argument('--dd_alpha', type=float, default=0.5, help="dirichlet distribution alpha")
 
     # model arguments
     parser.add_argument('--model', type=str, default='mlp', help='model name')

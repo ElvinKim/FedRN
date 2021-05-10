@@ -153,6 +153,43 @@ if __name__ == '__main__':
 
     # copy weights
     w_glob = net_glob.state_dict()
+    
+    # local weights
+    w_local_lst = []
+    
+    for i in range(args.num_users):
+        if args.model == 'cnn' and args.dataset == 'cifar':
+            if args.reproduce:
+                w_local_lst.append(CNN(input_channel=args.num_channels, n_outputs=args.num_classes).to(args.device).state_dict())
+            else:
+                w_local_lst.append(CNNCifar(args=args).to(args.device).state_dict())
+        elif args.model == 'cnn' and args.dataset == 'mnist':
+            if args.reproduce:
+                w_local_lst.append(CNN(input_channel=args.num_channels, n_outputs=args.num_classes).to(args.device).state_dict())
+            else:
+                w_local_lst.append(CNNMnist(args=args).to(args.device).state_dict())
+        elif args.model == 'mlp':
+            len_in = 1
+            for x in img_size:
+                len_in *= x
+                
+            w_local_lst.append(MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device).state_dict())
+        else:
+            exit('Error: unrecognized model')
+    
+    # Local Warm-up
+    backup_local_ep = args.local_ep
+    args.local_ep = 15
+    
+    for idx in range(args.num_users):
+        
+        print("client warm-up", idx)
+        local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
+        net_local.load_state_dict(w_local_lst[idx])
+        w, loss = local.train(net=copy.deepcopy(net_local).to(args.device))
+        w_local_lst[idx] = copy.deepcopy(w)
+        
+    args.local_ep = backup_local_ep
 
     # training
     loss_train = []
@@ -169,20 +206,6 @@ if __name__ == '__main__':
         result_dir = './save/{}/'.format(args.save_dir)
     
     if args.iid:
-        result_f = 'LG_teaching_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(args.dataset, 
-                                                                                                     args.model, 
-                                                                                                     args.epochs, 
-                                                                                                     args.frac, 
-                                                                                                     args.local_bs, 
-                                                                                                     args.local_ep, 
-                                                                                                     args.iid,
-                                                                                                     args.lr,
-                                                                                                     args.momentum,
-                                                                                                     args.noise_type,
-                                                                                                     args.noise_group_num,
-                                                                                                     args.group_noise_rate,
-                                                                                                     args.partition)
-    else:
         result_f = 'LG_teaching_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]'.format(args.dataset, 
                                                                                                      args.model, 
                                                                                                      args.epochs, 
@@ -195,6 +218,20 @@ if __name__ == '__main__':
                                                                                                      args.noise_type,
                                                                                                      args.noise_group_num,
                                                                                                      args.group_noise_rate)
+    else:
+        result_f = 'LG_teaching_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(args.dataset, 
+                                                                                                     args.model, 
+                                                                                                     args.epochs, 
+                                                                                                     args.frac, 
+                                                                                                     args.local_bs, 
+                                                                                                     args.local_ep, 
+                                                                                                     args.iid,
+                                                                                                     args.lr,
+                                                                                                     args.momentum,
+                                                                                                     args.noise_type,
+                                                                                                     args.noise_group_num,
+                                                                                                     args.group_noise_rate, 
+                                                                                                     args.partition)
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
@@ -218,13 +255,12 @@ if __name__ == '__main__':
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 
         for idx in idxs_users:
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-            w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
-            if args.all_clients:
-                w_locals[idx] = copy.deepcopy(w)
-            else:
-                w_locals.append(copy.deepcopy(w))
-            loss_locals.append(copy.deepcopy(loss))
+            local = LocalUpdateCoteaching(args=args, dataset=dataset_train, idxs=dict_users[idx])
+            net_local.load_state_dict(w_local_lst[idx])
+            w_g, loss1, w_l, loss2 = local.train_coteaching(net1=copy.deepcopy(net_glob).to(args.device), net2=copy.deepcopy(net_local).to(args.device), rate_schedule=rate_schedule[iter])
+            
+            w_local_lst[idx] = copy.deepcopy(w_l)
+            w_glob_lst.append(copy.deepcopy(w_g)) 
             
         # update global weights
         w_glob = FedAvg(w_locals)

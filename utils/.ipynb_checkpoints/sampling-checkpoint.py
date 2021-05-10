@@ -97,6 +97,7 @@ def cifar_noniid(dataset, num_users, partition, beta=0.0):
         min_size = 0
         min_require_size = 10
         K = 10
+        n_parties = num_users
 
         N = len(dataset)
         dict_users = {}
