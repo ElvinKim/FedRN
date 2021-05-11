@@ -1,4 +1,4 @@
-#nsml: nsml/default_ml:cuda9
+#nsml: pytorch/pytorch:1.7.0-cuda11.0-cudnn8-runtime
 from distutils.core import setup
 
 setup(
@@ -8,7 +8,7 @@ setup(
     install_requires=[
         'scikit-learn',
         'numpy',
-        'torch==0.4.1',
-        'torchvision==0.2.1',
+        'torch==1.7.0',
+        'torchvision==0.8.1',
     ],
 )
