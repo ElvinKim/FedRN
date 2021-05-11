@@ -8,7 +8,10 @@ import torch.nn.functional as F
 
 
 def get_model(args):
-    if args.model == 'cnn' and args.dataset == 'cifar':
+    if args.model == 'cnn' and args.reproduce:
+        model = CNN(input_channel=args.num_channels, n_outputs=args.num_classes)
+
+    elif args.model == 'cnn' and args.dataset == 'cifar':
         model = CNNCifar(args=args)
 
     elif args.model == 'cnn' and args.dataset == 'mnist':
