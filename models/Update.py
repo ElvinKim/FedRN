@@ -53,7 +53,7 @@ class DatasetSplitHS(Dataset):
         return img, target, soft_label, prediction, index
 
 
-class MixMatchLabeled(Dataset):
+class PairProbDataset(Dataset):
     def __init__(self, dataset, idxs, prob, idx_return=False):
         self.dataset = dataset
         self.idxs = list(idxs)
@@ -75,11 +75,12 @@ class MixMatchLabeled(Dataset):
             return image1, image2, label, prob
 
 
-class MixMatchUnlabeled(Dataset):
-    def __init__(self, dataset, idxs, idx_return=False):
+class PairDataset(Dataset):
+    def __init__(self, dataset, idxs, idx_return=False, label_return=False):
         self.dataset = dataset
         self.idxs = list(idxs)
         self.idx_return = idx_return
+        self.label_return = label_return
 
     def __len__(self):
         return len(self.idxs)
@@ -88,11 +89,15 @@ class MixMatchUnlabeled(Dataset):
         item = int(item)
         image1, label = self.dataset[self.idxs[item]]
         image2, label = self.dataset[self.idxs[item]]
+        sample = (image1, image2,)
+
+        if self.label_return:
+            sample += (label,)
 
         if self.idx_return:
-            return image1, image2, item
-        else:
-            return image1, image2
+            sample += (item,)
+
+        return sample
 
 
 class SemiLoss(object):
@@ -110,186 +115,198 @@ def linear_rampup(args, current, warm_up, rampup_length=16):
     return args.lambda_u * float(current)
 
 
-class GMixLabeled(Dataset):
-    def __init__(self, dataset, idxs, idx_return=False):
-        self.dataset = dataset
-        self.idxs = list(idxs)
-        self.idx_return = idx_return
-
-    def __len__(self):
-        return len(self.idxs)
-
-    def __getitem__(self, item):
-        item = int(item)
-        image1, label = self.dataset[self.idxs[item]]
-        image2, label = self.dataset[self.idxs[item]]
-
-        if self.idx_return:
-            return image1, image2, label, item
-        else:
-            return image1, image2, label
-
-
-class GMixUnlabeled(Dataset):
-    def __init__(self, dataset, idxs, idx_return=False):
-        self.dataset = dataset
-        self.idxs = list(idxs)
-        self.idx_return = idx_return
-
-    def __len__(self):
-        return len(self.idxs)
-
-    def __getitem__(self, item):
-        item = int(item)
-        image1, label = self.dataset[self.idxs[item]]
-        image2, label = self.dataset[self.idxs[item]]
-
-        if self.idx_return:
-            return image1, image2, item
-        else:
-            return image1, image2
-
-
 def get_local_update_objects(args, dataset_train, dict_users, noise_rates):
     local_update_objects = []
     for idx, noise_rate in zip(range(args.num_users), noise_rates):
+        local_update_args = dict(
+            args=args,
+            dataset=dataset_train,
+            idxs=dict_users[idx],
+        )
         if args.method == 'default':
-            local_update_object = LocalUpdate(
-                args=args,
-                dataset=dataset_train,
-                idxs=dict_users[idx],
-            )
+            local_update_object = BaseLocalUpdate(**local_update_args)
+
+        elif args.method == 'babu':
+            local_update_object = BaseLocalUpdate(is_babu=True, **local_update_args)
 
         elif args.method == 'selfie':
-            local_update_object = LocalUpdateSELFIE(
-                args=args,
-                dataset=dataset_train,
-                idxs=dict_users[idx],
-                noise_rate=noise_rate,
-            )
+            local_update_object = LocalUpdateSELFIE(noise_rate=noise_rate, **local_update_args)
 
         elif args.method == 'jointoptim':
-            local_update_object = LocalUpdateJointOptim(
-                args=args,
-                dataset=dataset_train,
-                idxs=dict_users[idx],
-            )
+            local_update_object = LocalUpdateJointOptim(**local_update_args)
+
+        elif args.method in ['coteaching', 'coteaching+']:
+            local_update_object = LocalUpdateCoteaching(is_coteaching_plus=bool(args.method == 'coteaching+'),
+                                                        **local_update_args)
+        elif args.method == 'dividemix':
+            local_update_object = LocalUpdateDivideMix(**local_update_args)
+
+        elif args.method == 'gfilter':
+            local_update_object = LocalUpdateGFilter(**local_update_args)
+
+        elif args.method == 'gmix':
+            local_update_object = LocalUpdateGMix(**local_update_args)
 
         local_update_objects.append(local_update_object)
 
     return local_update_objects
 
 
-def loss_coteaching(y_pred1, y_pred2, y_true, forget_rate, loss_func=None):
-    loss_1 = loss_func(y_pred1, y_true)
-    ind_1_sorted = np.argsort(loss_1.data.cpu()).cuda()
-    loss_1_sorted = loss_1[ind_1_sorted]
-
-    loss_2 = loss_func(y_pred2, y_true)
-    ind_2_sorted = np.argsort(loss_2.data.cpu()).cuda()
-    loss_2_sorted = loss_2[ind_2_sorted]
-
-    remember_rate = 1 - forget_rate
-    num_remember = int(remember_rate * len(loss_1_sorted))
-
-    ind_1_update = ind_1_sorted[:num_remember]
-    ind_2_update = ind_2_sorted[:num_remember]
-    # exchange
-    loss_1_update = loss_func(y_pred1[ind_2_update], y_true[ind_2_update])
-    loss_2_update = loss_func(y_pred2[ind_1_update], y_true[ind_1_update])
-
-    return torch.sum(loss_1_update) / num_remember, torch.sum(loss_2_update) / num_remember
-
-
-def loss_coteaching_plus(logits, logits2, labels, forget_rate, ind, step, loss_func=None):
-    outputs = F.softmax(logits, dim=1)
-    outputs2 = F.softmax(logits2, dim=1)
-
-    _, pred1 = torch.max(logits.data, 1)
-    _, pred2 = torch.max(logits2.data, 1)
-
-    pred1, pred2 = pred1.cpu().numpy(), pred2.cpu().numpy()
-
-    logical_disagree_id = np.zeros(labels.size(), dtype=bool)
-    disagree_id = []
-    for idx, p1 in enumerate(pred1):
-        if p1 != pred2[idx]:
-            disagree_id.append(idx)
-            logical_disagree_id[idx] = True
-
-    temp_disagree = ind * logical_disagree_id.astype(np.int64)
-    ind_disagree = np.asarray([i for i in temp_disagree if i != 0]).transpose()
-    try:
-        assert ind_disagree.shape[0] == len(disagree_id)
-    except:
-        disagree_id = disagree_id[:ind_disagree.shape[0]]
-
-    _update_step = np.logical_or(logical_disagree_id, step < 5000).astype(np.float32)
-    update_step = Variable(torch.from_numpy(_update_step)).cuda()
-
-    if len(disagree_id) > 0:
-        update_labels = labels[disagree_id]
-        update_outputs = outputs[disagree_id]
-        update_outputs2 = outputs2[disagree_id]
-
-        loss_1, loss_2, = loss_coteaching(update_outputs, update_outputs2, update_labels, forget_rate, loss_func)
-    else:
-        update_labels = labels
-        update_outputs = outputs
-        update_outputs2 = outputs2
-
-        cross_entropy_1 = F.cross_entropy(update_outputs, update_labels)
-        cross_entropy_2 = F.cross_entropy(update_outputs2, update_labels)
-
-        loss_1 = torch.sum(update_step * cross_entropy_1) / labels.size()[0]
-        loss_2 = torch.sum(update_step * cross_entropy_2) / labels.size()[0]
-    return loss_1, loss_2
-
-
-class LocalUpdate(object):
-    def __init__(self, args, dataset=None, idxs=None):
+class BaseLocalUpdate:
+    def __init__(self, args, dataset=None, idxs=None, idx_return=False, real_idx_return=False, is_babu=False):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
-        self.selected_clients = []
+
+        self.dataset = dataset
+        self.idxs = idxs
+
+        self.idx_return = idx_return
+        self.real_idx_return = real_idx_return
+
         self.ldr_train = DataLoader(
-            DatasetSplit(dataset, idxs),
+            DatasetSplit(dataset, idxs, idx_return=idx_return, real_idx_return=real_idx_return),
             batch_size=self.args.local_bs,
             shuffle=True,
         )
+        self.total_epochs = 0
+        self.epoch = 0
+        self.batch_idx = 0
+        self.is_babu = is_babu
 
-    def train(self, net):
+    def train(self, net, net2=None):
+        if net2 is None:
+            return self.train_single_model(net)
+        else:
+            return self.train_multiple_models(net, net2)
+
+    def train_single_model(self, net):
         net.train()
-        # train and update
-        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+
+        if self.is_babu:
+            body_params = [p for name, p in net.named_parameters() if 'fc3' not in name]
+            head_params = [p for name, p in net.named_parameters() if 'fc3' in name]
+
+            optimizer = torch.optim.SGD([{'params': body_params, 'lr': self.args.lr, 'momentum': self.args.momentum},
+                                         {'params': head_params, 'lr': 0.0}])
+        else:
+            optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
 
         epoch_loss = []
-        for iter in range(self.args.local_ep):
+        for epoch in range(self.args.local_ep):
+            self.epoch = epoch
             batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
+            for batch_idx, batch in enumerate(self.ldr_train):
+                self.batch_idx = batch_idx
                 net.zero_grad()
-                log_probs = net(images)
-                loss = self.loss_func(log_probs, labels)
+
+                loss = self.forward_pass(batch, net)
                 loss.backward()
                 optimizer.step()
+
                 if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                              100. * batch_idx / len(self.ldr_train), loss.item()))
+                    print(f"Update Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
+                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
+
                 batch_loss.append(loss.item())
+                self.on_batch_end()
+
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
+            self.total_epochs += 1
+            self.on_epoch_end()
+
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
+    def train_multiple_models(self, net1, net2):
+        net1.train()
+        net2.train()
 
-class LocalUpdateSELFIE(object):
-    def __init__(self, args, dataset=None, idxs=None, noise_rate=0):
-        self.args = args
-        self.loss_func = nn.CrossEntropyLoss(reduction='none')
-        self.ldr_train = DataLoader(
-            DatasetSplit(dataset, idxs, real_idx_return=True),
-            batch_size=self.args.local_bs,
-            shuffle=True,
+        optimizer_args = dict(
+            lr=self.args.lr,
+            momentum=self.args.momentum,
+            weight_decay=self.args.weight_decay,
         )
+        optimizer1 = torch.optim.SGD(net1.parameters(), **optimizer_args)
+        optimizer2 = torch.optim.SGD(net2.parameters(), **optimizer_args)
+
+        epoch_loss1 = []
+        epoch_loss2 = []
+        for epoch in range(self.args.local_ep):
+            self.epoch = epoch
+            batch_loss1 = []
+            batch_loss2 = []
+            for batch_idx, batch in enumerate(self.ldr_train):
+                self.batch_idx = batch_idx
+                net1.zero_grad()
+                net2.zero_grad()
+
+                loss1, loss2 = self.forward_pass(batch, net1, net2)
+                loss1.backward()
+                loss2.backward()
+                optimizer1.step()
+                optimizer2.step()
+
+                if self.args.verbose and batch_idx % 10 == 0:
+                    print(f"Update Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
+                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss1.item():.6f}"
+                          f"\tLoss: {loss2.item():.6f}")
+
+                batch_loss1.append(loss1.item())
+                batch_loss2.append(loss2.item())
+                self.on_batch_end()
+
+            epoch_loss1.append(sum(batch_loss1) / len(batch_loss1))
+            epoch_loss2.append(sum(batch_loss2) / len(batch_loss2))
+            self.total_epochs += 1
+            self.on_epoch_end()
+
+        return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), \
+               net2.state_dict(), sum(epoch_loss2) / len(epoch_loss2)
+
+    def forward_pass(self, batch, net, net2=None):
+        if self.idx_return:
+            images, labels, _ = batch
+
+        elif self.real_idx_return:
+            images, labels, _, _ = batch
+
+        else:
+            images, labels = batch
+
+        images = images.to(self.args.device)
+        labels = labels.to(self.args.device)
+
+        log_probs = net(images)
+        loss = self.loss_func(log_probs, labels)
+        if net2 is None:
+            return loss
+
+        # 2 models
+        log_probs2 = net2(images)
+        loss2 = self.loss_func(log_probs2, labels)
+        return loss, loss2
+
+    def on_epoch_begin(self):
+        pass
+
+    def on_batch_begin(self):
+        pass
+
+    def on_batch_end(self):
+        pass
+
+    def on_epoch_end(self):
+        pass
+
+
+class LocalUpdateSELFIE(BaseLocalUpdate):
+    def __init__(self, args, dataset=None, idxs=None, noise_rate=0):
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+            real_idx_return=True
+        )
+        self.loss_func = nn.CrossEntropyLoss(reduction='none')
         self.total_epochs = 0
         self.warmup = args.warmup_epochs
         self.corrector = SelfieCorrector(
@@ -299,69 +316,46 @@ class LocalUpdateSELFIE(object):
             num_classes=args.num_classes,
         )
 
-    def train(self, net):
-        net.train()
-        # train and update
-        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+    def forward_pass(self, batch, net, net2=None):
+        images, labels, _, ids = batch
+        images = images.to(self.args.device)
+        labels = labels.to(self.args.device)
+        ids = ids.numpy()
 
-        epoch_loss = []
-        for iter in range(self.args.local_ep):
-            batch_loss = []
-            for batch_idx, batch in enumerate(self.ldr_train):
-                net.zero_grad()
+        log_probs = net(images)
+        loss_array = self.loss_func(log_probs, labels)
 
-                images, labels, _, ids = batch
-                images = images.to(self.args.device)
-                labels = labels.to(self.args.device)
-                ids = ids.numpy()
-
-                log_probs = net(images)
-                loss_array = self.loss_func(log_probs, labels)
-
-                # update prediction history
-                self.corrector.update_prediction_history(
-                    ids=ids,
-                    outputs=log_probs.cpu().detach().numpy(),
-                )
-
-                if self.total_epochs >= self.warmup:
-                    # correct labels, remove noisy data
-                    images, labels = self.corrector.patch_clean_with_corrected_sample_batch(
-                        ids=ids,
-                        X=images,
-                        y=labels,
-                        loss_array=loss_array.cpu().detach().numpy(),
-                    )
-                    images = images.to(self.args.device)
-                    labels = labels.to(self.args.device)
-                    log_probs = net(images)
-                    loss_array = self.loss_func(log_probs, labels)
-
-                loss = loss_array.mean()
-                loss.backward()
-                optimizer.step()
-
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print(f"Update Epoch: {iter} [{batch_idx * len(images)}/{len(self.ldr_train.dataset)}"
-                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
-
-                batch_loss.append(loss.item())
-
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-            self.total_epochs += 1
-
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
-
-
-class LocalUpdateJointOptim(object):
-    def __init__(self, args, dataset=None, idxs=None):
-        self.args = args
-        self.ldr_train = DataLoader(
-            DatasetSplit(dataset, idxs, real_idx_return=True),
-            batch_size=self.args.local_bs,
-            shuffle=True,
+        # update prediction history
+        self.corrector.update_prediction_history(
+            ids=ids,
+            outputs=log_probs.cpu().detach().numpy(),
         )
-        self.total_epochs = 0
+
+        if self.total_epochs >= self.warmup:
+            # correct labels, remove noisy data
+            images, labels = self.corrector.patch_clean_with_corrected_sample_batch(
+                ids=ids,
+                X=images,
+                y=labels,
+                loss_array=loss_array.cpu().detach().numpy(),
+            )
+            images = images.to(self.args.device)
+            labels = labels.to(self.args.device)
+            log_probs = net(images)
+            loss_array = self.loss_func(log_probs, labels)
+
+        loss = loss_array.mean()
+        return loss
+
+
+class LocalUpdateJointOptim(BaseLocalUpdate):
+    def __init__(self, args, dataset=None, idxs=None):
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+            real_idx_return=True
+        )
         self.stop_update_epoch = args.stop_update_epoch
         self.corrector = JointOptimCorrector(
             queue_size=args.K,
@@ -369,12 +363,34 @@ class LocalUpdateJointOptim(object):
             data_size=len(idxs),
         )
 
-    def loss_func(self, logits, probs, soft_targets, is_cross_entropy=False):
+    def forward_pass(self, batch, net, net2=None):
+        images, labels, _, ids = batch
+        ids = ids.numpy()
+
+        _, soft_labels = self.corrector.get_labels(ids, labels)
+        soft_labels = soft_labels.to(self.args.device)
+        images = images.to(self.args.device)
+
+        logits = net(images)
+        probs = F.softmax(logits, dim=1)
+
+        is_loss_cross_entropy = self.total_epochs >= self.stop_update_epoch
+        loss = self.joint_optim_loss(logits, probs, soft_labels, is_cross_entropy=is_loss_cross_entropy)
+
+        self.corrector.update_probability_history(ids, probs.cpu().detach())
+        return loss
+
+    def on_epoch_end(self):
+        if self.args.begin_update_epoch <= self.total_epochs < self.args.stop_update_epoch:
+            self.corrector.update_labels()
+
+    def joint_optim_loss(self, logits, probs, soft_targets, is_cross_entropy=False):
         if is_cross_entropy:
             loss = -torch.mean(torch.sum(F.log_softmax(logits, dim=1) * soft_targets, dim=1))
 
         else:
-            # We introduce a prior probability distribution p, which is a distribution of classes among all training data.
+            # We introduce a prior probability distribution p,
+            # which is a distribution of classes among all training data.
             p = torch.ones(self.args.num_classes).cuda() / self.args.num_classes
 
             avg_probs = torch.mean(probs, dim=0)
@@ -387,187 +403,25 @@ class LocalUpdateJointOptim(object):
 
         return loss
 
-    def train(self, net):
-        net.train()
-        # train and update
-        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
 
-        epoch_loss = []
-        for iter in range(self.args.local_ep):
-            is_loss_cross_entropy = self.total_epochs >= self.stop_update_epoch
-
-            batch_loss = []
-            for batch_idx, batch in enumerate(self.ldr_train):
-                net.zero_grad()
-
-                images, labels, _, ids = batch
-                ids = ids.numpy()
-
-                _, soft_labels = self.corrector.get_labels(ids, labels)
-                soft_labels = soft_labels.to(self.args.device)
-                images = images.to(self.args.device)
-
-                logits = net(images)
-                probs = F.softmax(logits, dim=1)
-                loss = self.loss_func(logits, probs, soft_labels, is_cross_entropy=is_loss_cross_entropy)
-
-                net.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                self.corrector.update_probability_history(ids, probs.cpu().detach())
-
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print(f"Update Epoch: {iter} [{batch_idx * len(images)}/{len(self.ldr_train.dataset)}"
-                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
-
-                batch_loss.append(loss.item())
-
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-            self.total_epochs += 1
-
-            if self.args.begin_update_epoch <= self.total_epochs < self.args.stop_update_epoch:
-                self.corrector.update_labels()
-
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
-
-
-class LocalUpdateCoteaching(object):
+class LocalUpdateGFilter(BaseLocalUpdate):
     def __init__(self, args, dataset=None, idxs=None):
-        self.args = args
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+        )
         self.loss_func = nn.CrossEntropyLoss(reduce=False)
-        self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
 
-    def train_coteaching(self, net1, net2, rate_schedule):
-        net1.train()
-        net2.train()
-        # train and update
-        optimizer1 = torch.optim.SGD(net1.parameters(), lr=self.args.lr, momentum=self.args.momentum,
-                                     weight_decay=self.args.weight_decay)
-        optimizer2 = torch.optim.SGD(net2.parameters(), lr=self.args.lr, momentum=self.args.momentum,
-                                     weight_decay=self.args.weight_decay)
+    def forward_pass(self, batch, net, net2=None):
+        images, labels = batch
+        images = images.to(self.args.device)
+        labels = labels.to(self.args.device)
 
-        epoch_loss1 = []
-        epoch_loss2 = []
-        for iter in range(self.args.local_ep):
-            batch_loss1 = []
-            batch_loss2 = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
-                net1.zero_grad()
-                net2.zero_grad()
-                log_probs1 = net1(images)
-                log_probs2 = net2(images)
-                loss1, loss2 = loss_coteaching(log_probs1, log_probs2, labels, rate_schedule, self.loss_func)
-                loss1.backward()
-                loss2.backward()
-                optimizer1.step()
-                optimizer2.step()
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss1: {:.6f}\tLoss2: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                              100. * batch_idx / len(self.ldr_train), loss1.item(), loss2.item()))
-                batch_loss1.append(loss1.item())
-                batch_loss2.append(loss2.item())
-            epoch_loss1.append(sum(batch_loss1) / len(batch_loss1))
-            epoch_loss2.append(sum(batch_loss2) / len(batch_loss2))
-        return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), net2.state_dict(), sum(epoch_loss2) / len(
-            epoch_loss2)
+        log_probs = net(images)
+        loss = self.filter_loss(log_probs, labels, self.args.forget_rate)
 
-
-class LocalUpdateCoteachingPlus(object):
-    def __init__(self, args, dataset=None, idxs=None):
-        self.args = args
-        self.loss_func = nn.CrossEntropyLoss(reduce=False)
-        self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, idx_return=True), batch_size=self.args.local_bs,
-                                    shuffle=True)
-
-    def train(self, net1, net2, rate_schedule, epoch):
-        init_epoch = 10
-        net1.train()
-        net2.train()
-        # train and update
-        optimizer1 = torch.optim.SGD(net1.parameters(),
-                                     lr=self.args.lr,
-                                     momentum=self.args.momentum,
-                                     weight_decay=self.args.weight_decay)
-        optimizer2 = torch.optim.SGD(net2.parameters(),
-                                     lr=self.args.lr,
-                                     momentum=self.args.momentum,
-                                     weight_decay=self.args.weight_decay)
-
-        epoch_loss1 = []
-        epoch_loss2 = []
-        for iter in range(self.args.local_ep):
-            batch_loss1 = []
-            batch_loss2 = []
-            for batch_idx, (images, labels, indexes) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
-                net1.zero_grad()
-                net2.zero_grad()
-                log_probs1 = net1(images)
-                log_probs2 = net2(images)
-                if epoch < init_epoch:
-                    loss1, loss2 = loss_coteaching(log_probs1,
-                                                   log_probs2,
-                                                   labels,
-                                                   rate_schedule,
-                                                   self.loss_func)
-                else:
-                    loss1, loss2 = loss_coteaching_plus(log_probs1,
-                                                        log_probs2,
-                                                        labels,
-                                                        rate_schedule,
-                                                        indexes,
-                                                        epoch * batch_idx,
-                                                        self.loss_func)
-                loss1.backward()
-                loss2.backward()
-                optimizer1.step()
-                optimizer2.step()
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss1: {:.6f}\tLoss2: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                              100. * batch_idx / len(self.ldr_train), loss1.item(), loss2.item()))
-                batch_loss1.append(loss1.item())
-                batch_loss2.append(loss2.item())
-            epoch_loss1.append(sum(batch_loss1) / len(batch_loss1))
-            epoch_loss2.append(sum(batch_loss2) / len(batch_loss2))
-        return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), net2.state_dict(), sum(epoch_loss2) / len(
-            epoch_loss2)
-
-
-class LocalUpdateGFilter(object):
-    def __init__(self, args, dataset=None, idxs=None):
-        self.args = args
-        self.loss_func = nn.CrossEntropyLoss(reduce=False)
-        self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
-
-    def train(self, net, forget_rate):
-        net.train()
-        # train and update
-        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
-
-        epoch_loss = []
-        for iter in range(self.args.local_ep):
-            batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
-                net.zero_grad()
-                log_probs = net(images)
-                loss = self.filter_loss(log_probs, labels, forget_rate)
-                loss.backward()
-                optimizer.step()
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                              100. * batch_idx / len(self.ldr_train), loss.item()))
-                batch_loss.append(loss.item())
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+        return loss
 
     def filter_loss(self, y_pred, y_true, forget_rate):
         loss = self.loss_func(y_pred, y_true)
@@ -584,14 +438,113 @@ class LocalUpdateGFilter(object):
         return torch.sum(loss_update) / num_remember
 
 
+class LocalUpdateCoteaching(BaseLocalUpdate):
+    def __init__(self, args, dataset=None, idxs=None, is_coteaching_plus=False):
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+            idx_return=is_coteaching_plus
+        )
+        self.loss_func = nn.CrossEntropyLoss(reduce=False)
+        self.is_coteaching_plus = is_coteaching_plus
+
+        self.init_epoch = 10  # only used for coteaching+
+
+    def forward_pass(self, batch, net, net2=None):
+        if self.is_coteaching_plus:
+            images, labels, indices = batch
+        else:
+            images, labels = batch
+        images = images.to(self.args.device)
+        labels = labels.to(self.args.device)
+        log_probs1 = net(images)
+        log_probs2 = net2(images)
+
+        loss_args = dict(
+            y_pred1=log_probs1,
+            y_pred2=log_probs2,
+            y_true=labels,
+            forget_rate=self.args.forget_rate,
+        )
+        if self.is_coteaching_plus and self.epoch >= self.init_epoch:
+            loss1, loss2 = self.loss_coteaching_plus(indices=indices, step=self.epoch * self.batch_idx, **loss_args)
+        else:
+            loss1, loss2 = self.loss_coteaching(**loss_args)
+
+        return loss1, loss2
+
+    def loss_coteaching(self, y_pred1, y_pred2, y_true, forget_rate):
+        loss_1 = self.loss_func(y_pred1, y_true)
+        ind_1_sorted = np.argsort(loss_1.data.cpu()).cuda()
+        loss_1_sorted = loss_1[ind_1_sorted]
+
+        loss_2 = self.loss_func(y_pred2, y_true)
+        ind_2_sorted = np.argsort(loss_2.data.cpu()).cuda()
+        loss_2_sorted = loss_2[ind_2_sorted]
+
+        remember_rate = 1 - forget_rate
+        num_remember = int(remember_rate * len(loss_1_sorted))
+
+        ind_1_update = ind_1_sorted[:num_remember]
+        ind_2_update = ind_2_sorted[:num_remember]
+        # exchange
+        loss_1_update = self.loss_func(y_pred1[ind_2_update], y_true[ind_2_update])
+        loss_2_update = self.loss_func(y_pred2[ind_1_update], y_true[ind_1_update])
+
+        return torch.sum(loss_1_update) / num_remember, torch.sum(loss_2_update) / num_remember
+
+    def loss_coteaching_plus(self, y_pred1, y_pred2, y_true, forget_rate, indices, step):
+        outputs = F.softmax(y_pred1, dim=1)
+        outputs2 = F.softmax(y_pred2, dim=1)
+
+        _, pred1 = torch.max(y_pred1.data, 1)
+        _, pred2 = torch.max(y_pred2.data, 1)
+
+        pred1, pred2 = pred1.cpu().numpy(), pred2.cpu().numpy()
+
+        logical_disagree_id = np.zeros(y_true.size(), dtype=bool)
+        disagree_id = []
+        for idx, p1 in enumerate(pred1):
+            if p1 != pred2[idx]:
+                disagree_id.append(idx)
+                logical_disagree_id[idx] = True
+
+        temp_disagree = indices * logical_disagree_id.astype(np.int64)
+        ind_disagree = np.asarray([i for i in temp_disagree if i != 0]).transpose()
+        try:
+            assert ind_disagree.shape[0] == len(disagree_id)
+        except:
+            disagree_id = disagree_id[:ind_disagree.shape[0]]
+
+        if len(disagree_id) > 0:
+            update_labels = y_true[disagree_id]
+            update_outputs = outputs[disagree_id]
+            update_outputs2 = outputs2[disagree_id]
+            loss_1, loss_2, = self.loss_coteaching(update_outputs, update_outputs2, update_labels, forget_rate)
+        else:
+            update_step = np.logical_or(logical_disagree_id, step < 5000).astype(np.float32)
+            update_step = Variable(torch.from_numpy(update_step)).cuda()
+
+            cross_entropy_1 = F.cross_entropy(outputs, y_true)
+            cross_entropy_2 = F.cross_entropy(outputs2, y_true)
+
+            loss_1 = torch.sum(update_step * cross_entropy_1) / y_true.size()[0]
+            loss_2 = torch.sum(update_step * cross_entropy_2) / y_true.size()[0]
+        return loss_1, loss_2
+
+
 class LocalUpdateLGFineTuning(object):
     def __init__(self, args, dataset=None, idxs=None):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
         self.selected_clients = []
         self.dataset = dataset
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, idx_return=True), batch_size=self.args.local_bs,
-                                    shuffle=True)
+        self.ldr_train = DataLoader(
+            DatasetSplit(dataset, idxs, idx_return=True),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
 
     def train(self, g_net, l_net, forget_rate):
         loss_func = nn.CrossEntropyLoss()
@@ -675,10 +628,13 @@ class LocalUpdateFinetuning(object):
         self.loss_func = nn.CrossEntropyLoss()
         self.selected_clients = []
         self.dataset = dataset
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, idx_return=True), batch_size=self.args.local_bs,
-                                    shuffle=True)
+        self.ldr_train = DataLoader(
+            DatasetSplit(dataset, idxs, idx_return=True),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
 
-    def train(self, net, forget_rate):
+    def train(self, net):
         loss_func = nn.CrossEntropyLoss()
         loss_func_no_re = nn.CrossEntropyLoss(reduce=False)
 
@@ -713,7 +669,7 @@ class LocalUpdateFinetuning(object):
 
         loss_idx_lst.sort(key=lambda x: x[0])
 
-        remember_rate = 1 - forget_rate
+        remember_rate = 1 - self.args.forget_rate
         num_remember = int(remember_rate * len(loss_idx_lst))
 
         filtered_train_data = []
@@ -747,79 +703,17 @@ class LocalUpdateFinetuning(object):
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
 
-class LocalUpdateBABU(object):
+class LocalUpdateGMix(BaseLocalUpdate):
     def __init__(self, args, dataset=None, idxs=None):
-        self.args = args
-        self.loss_func = nn.CrossEntropyLoss()
-        self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
-
-    def train(self, net):
-        net.train()
-        # train and update
-        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
-
-        epoch_loss = []
-
-        body_params = [p for name, p in net.named_parameters() if 'fc3' not in name]
-        head_params = [p for name, p in net.named_parameters() if 'fc3' in name]
-
-        optimizer = torch.optim.SGD([{'params': body_params, 'lr': self.args.lr, 'momentum': self.args.momentum},
-                                     {'params': head_params, 'lr': 0.0}])
-
-        for iter in range(self.args.local_ep):
-            batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
-                net.zero_grad()
-                log_probs = net(images)
-                loss = self.loss_func(log_probs, labels)
-                loss.backward()
-                optimizer.step()
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        iter, batch_idx * len(images), len(self.ldr_train.dataset),
-                              100. * batch_idx / len(self.ldr_train), loss.item()))
-                batch_loss.append(loss.item())
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
-
-
-class LocalUpdateGMix(object):
-    def __init__(self, args, dataset=None, idxs=None):
-        self.args = args
-        self.loss_func = nn.CrossEntropyLoss()
-        self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, idx_return=True), batch_size=self.args.local_bs,
-                                    shuffle=True)
-
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+            real_idx_return=True
+        )
         self.num_iter = int(len(idxs) / args.local_bs)
-        self.dataset = dataset
 
-    def warmup(self, net):
-        net.train()
-        # train and update
-        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
-
-        epoch_loss = []
-        for ep in range(self.args.local_ep):
-            batch_loss = []
-            for batch_idx, (images, labels, idxs) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
-                net.zero_grad()
-                log_probs = net(images)
-                loss = self.loss_func(log_probs, labels)
-                loss.backward()
-                optimizer.step()
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        ep, batch_idx * len(images), len(self.ldr_train.dataset),
-                            100. * batch_idx / len(self.ldr_train), loss.item()))
-                batch_loss.append(loss.item())
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
-
-    def train(self, net, g_epoch, forget_rate=0.2):
+    def train_2_phase(self, net, g_epoch):
         # train and update
         optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
 
@@ -841,7 +735,7 @@ class LocalUpdateGMix(object):
 
         loss_idx_lst.sort(key=lambda x: x[0])
 
-        remember_rate = 1 - forget_rate
+        remember_rate = 1 - self.args.forget_rate
         num_remember = int(remember_rate * len(loss_idx_lst))
 
         # Divide dataset into label & unlabel 
@@ -869,11 +763,11 @@ class LocalUpdateGMix(object):
         #             if len(labeled_idxs) % 2 != 0:
         #                 unlabeled_idxs.append(labeled_idxs.pop(-1))
 
-        labeled_trainloader = DataLoader(GMixLabeled(self.dataset, labeled_idxs),
+        labeled_trainloader = DataLoader(PairDataset(self.dataset, labeled_idxs, label_return=True),
                                          batch_size=self.args.local_bs,
                                          shuffle=True)
 
-        unlabeled_trainloader = DataLoader(GMixUnlabeled(self.dataset, unlabeled_idxs),
+        unlabeled_trainloader = DataLoader(PairDataset(self.dataset, unlabeled_idxs, label_return=False),
                                            batch_size=self.args.local_bs,
                                            shuffle=True)
 
@@ -972,95 +866,70 @@ class LocalUpdateGMix(object):
         return self.args.lambda_u * float(current)
 
 
-class LocalUpdateDivideMix(object):
+class LocalUpdateDivideMix(BaseLocalUpdate):
     def __init__(self, args, dataset=None, idxs=None):
-        self.args = args
-        self.dataset = dataset
-        self.loss_func = nn.CrossEntropyLoss()
-        self.selected_clients = []
-        self.idxs = idxs
-        self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, idx_return=True), batch_size=self.args.local_bs,
-                                    shuffle=True)
-        self.ldr_eval = DataLoader(DatasetSplit(dataset, idxs, real_idx_return=True), batch_size=self.args.local_bs)
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+            idx_return=True,
+        )
         self.CE = nn.CrossEntropyLoss(reduction='none')
         self.CEloss = nn.CrossEntropyLoss()
 
-    def warmup(self, net1, net2):
-        net1.train()
+        self.ldr_eval = DataLoader(
+            DatasetSplit(dataset, idxs, real_idx_return=True),
+            batch_size=self.args.local_bs,
+        )
+
+    def train_2_phase(self, g_epoch, warmup, net, net2, all_loss):
+        net.train()
         net2.train()
 
         # train and update
-        optimizer1 = torch.optim.SGD(net1.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+        optimizer1 = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
         optimizer2 = torch.optim.SGD(net2.parameters(), lr=self.args.lr, momentum=self.args.momentum)
 
-        epoch_loss1 = []
-        epoch_loss2 = []
-
-        for iter in range(self.args.local_ep):
-            batch_loss = []
-            for batch_idx, (images, labels, idxs) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
-                net1.zero_grad()
-                log_probs = net1(images)
-                loss = self.loss_func(log_probs, labels)
-                loss.backward()
-                optimizer1.step()
-                batch_loss.append(loss.item())
-            epoch_loss1.append(sum(batch_loss) / len(batch_loss))
-
-        for iter in range(self.args.local_ep):
-            batch_loss = []
-            for batch_idx, (images, labels, idxs) in enumerate(self.ldr_train):
-                images, labels = images.to(self.args.device), labels.to(self.args.device)
-                net2.zero_grad()
-                log_probs = net2(images)
-                loss = self.loss_func(log_probs, labels)
-                loss.backward()
-                optimizer2.step()
-                batch_loss.append(loss.item())
-            epoch_loss2.append(sum(batch_loss) / len(batch_loss))
-
-        return net1.state_dict(), net2.state_dict()
-
-    def train(self, g_epoch, warmup, net1, net2, all_loss):
-        net1.train()
-        net2.train()
-
-        prob1, all_loss[0], prob_dict1, label_idx1, unlabel_idx1 = self.eval_train(net1, all_loss[0],
-                                                                                   p_threshold=self.args.p_threshold)
-        prob2, all_loss[1], prob_dict2, label_idx2, unlabel_idx2 = self.eval_train(net2, all_loss[1],
-                                                                                   p_threshold=self.args.p_threshold)
-
-        # train and update
-        optimizer1 = torch.optim.SGD(net1.parameters(), lr=self.args.lr, momentum=self.args.momentum)
-        optimizer2 = torch.optim.SGD(net2.parameters(), lr=self.args.lr, momentum=self.args.momentum)
-
-        epoch_loss1 = []
-        epoch_loss2 = []
+        prob1, all_loss[0], prob_dict1, label_idx1, unlabel_idx1 = self.eval_train(
+            net, all_loss[0], p_threshold=self.args.p_threshold,
+        )
+        prob2, all_loss[1], prob_dict2, label_idx2, unlabel_idx2 = self.eval_train(
+            net2, all_loss[1], p_threshold=self.args.p_threshold,
+        )
 
         # train net1
-        labeled_trainloader = DataLoader(MixMatchLabeled(self.dataset, label_idx2, prob_dict2),
-                                         batch_size=self.args.local_bs, shuffle=True)
-
-        unlabeled_trainloader = DataLoader(MixMatchUnlabeled(self.dataset, unlabel_idx2),
-                                           batch_size=self.args.local_bs, shuffle=True)
-        net1.train()
+        labeled_trainloader = DataLoader(
+            PairProbDataset(self.dataset, label_idx2, prob_dict2),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        unlabeled_trainloader = DataLoader(
+            PairDataset(self.dataset, unlabel_idx2, label_return=False),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        net.train()
         net2.eval()
 
-        self.divide_mix(g_epoch, warmup, net1, net2, optimizer1, labeled_trainloader, unlabeled_trainloader)
+        loss1 = self.divide_mix(g_epoch, warmup, net, net2, optimizer1, labeled_trainloader, unlabeled_trainloader)
 
         # train net2
-        labeled_trainloader = DataLoader(MixMatchLabeled(self.dataset, label_idx1, prob_dict1),
-                                         batch_size=self.args.local_bs, shuffle=True)
-
-        unlabeled_trainloader = DataLoader(MixMatchUnlabeled(self.dataset, unlabel_idx1),
-                                           batch_size=self.args.local_bs, shuffle=True)
-        net1.eval()
+        labeled_trainloader = DataLoader(
+            PairProbDataset(self.dataset, label_idx1, prob_dict1),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        unlabeled_trainloader = DataLoader(
+            PairDataset(self.dataset, unlabel_idx1, label_return=False),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        net.eval()
         net2.train()
 
-        self.divide_mix(g_epoch, warmup, net2, net1, optimizer2, labeled_trainloader, unlabeled_trainloader)
+        loss2 = self.divide_mix(g_epoch, warmup, net2, net, optimizer2, labeled_trainloader, unlabeled_trainloader)
 
-        return net1.state_dict(), net2.state_dict(), all_loss
+        return net.state_dict(), net2.state_dict(), loss1, loss2
 
     def divide_mix(self, epoch, warm_up, net, net2, optimizer, labeled_trainloader, unlabeled_trainloader):
         net.train()
@@ -1073,6 +942,7 @@ class LocalUpdateDivideMix(object):
 
         criterion = SemiLoss()
 
+        batch_loss = []
         for batch_idx in range(num_iter):
             try:
                 inputs_x, inputs_x2, labels_x, w_x = labeled_train_iter.next()
@@ -1155,6 +1025,10 @@ class LocalUpdateDivideMix(object):
             loss.backward()
             optimizer.step()
 
+            batch_loss.append(loss.item())
+
+        return sum(batch_loss) / len(batch_loss)
+
     def eval_train(self, model, all_loss, p_threshold):
         model.eval()
         losses_lst = []
@@ -1236,7 +1110,7 @@ class LocalUpdateHS(object):
 
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.dataset
 
-    def train(self, net, s_cnt, forget_rate=0.2):
+    def train_2_phase(self, net, s_cnt):
         # Select clean data
         net.eval()
 

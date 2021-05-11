@@ -9,11 +9,11 @@ import numpy as np
 import os
 import random
 
+import torchvision
 from torchvision import datasets, transforms
 import torch
 
-from utils.cifar import CIFAR10, CIFAR100, CIFAR10Basic
-from utils.mnist import MNIST
+from utils import CIFAR10Basic, MNIST, Logger
 from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
 from utils.utils import noisify_label
@@ -25,13 +25,32 @@ from models.test import test_img
 import nsml
 
 
+def init_local_weights(all_clients, w_glob, num_users):
+    w_locals = []
+
+    if all_clients:
+        print("Aggregation over all clients")
+        w_locals = [w_glob for i in range(num_users)]
+
+    return w_locals
+
+
 if __name__ == '__main__':
     # parse args
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
     args.schedule = [int(x) for x in args.schedule]
+    args.warm_up = int(args.epochs * 0.2) \
+        if args.method in ['dividemix', 'gmix'] \
+        else 0
+    use_2_models = args.method in ['coteaching', 'coteaching+', 'dividemix']
+    print(use_2_models)
+
     for x in vars(args).items():
         print(x)
+
+    print(torch.__version__)
+    print(torchvision.__version__)
 
     # Seed
     torch.manual_seed(args.seed)
@@ -69,21 +88,6 @@ if __name__ == '__main__':
         )
         num_classes = 10
 
-        # noisy_dataset_train = MNIST(
-        #     train=True,
-        #     transform=trans_mnist,
-        #     noise_type=args.noise_type,
-        #     noise_rate=args.noise_rate,
-        #     **dataset_args,
-        # )
-        # noisy_dataset_test = MNIST(
-        #     train=False,
-        #     transform=transforms.ToTensor(),
-        #     noise_type=args.noise_type,
-        #     noise_rate=args.noise_rate,
-        #     **dataset_args,
-        # )
-
     elif args.dataset == 'cifar':
         trans_cifar10_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
@@ -116,7 +120,7 @@ if __name__ == '__main__':
 
     labels = np.array(dataset_train.train_labels)
     num_imgs = len(dataset_train) // args.num_shards
-    args.img_size = dataset_train[0][0].shape    # used to get model
+    args.img_size = dataset_train[0][0].shape  # used to get model
     args.num_classes = num_classes
 
     # Sample users (iid / non-iid)
@@ -160,85 +164,45 @@ if __name__ == '__main__':
         user_noise_rates = [0] * args.num_users
     print(user_noise_rates)
 
+    # for logging purposes
+    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
+    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)
+
     ##############################
     # Build model
     ##############################
     net_glob = get_model(args)
     net_glob = net_glob.to(args.device)
-    net_glob.train()
     print(net_glob)
+    w_glob = net_glob.state_dict()  # copy weights
 
-    # copy weights
-    w_glob = net_glob.state_dict()
+    if use_2_models:
+        net_glob2 = get_model(args)
+        net_glob2 = net_glob2.to(args.device)
+        w_glob2 = net_glob2.state_dict()  # copy weights
 
     ##############################
     # Training
     ##############################
-    loss_train = []
-    cv_loss, cv_acc = [], []
-    val_loss_pre, counter = 0, 0
-    net_best = None
-    best_loss = None
-    val_acc_list, net_list = [], []
+    logger = Logger(args, use_2_models)
 
-    # save results
-    if args.save_dir is None:
-        result_dir = './save/'
-    else:
-        result_dir = './save/{}/'.format(args.save_dir)
+    all_loss_lst = [[[], []] for _ in range(args.num_users)]
 
-    if args.iid:
-        result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
-            args.dataset,
-            args.method,
-            args.model,
-            args.epochs,
-            args.frac,
-            args.local_bs,
-            args.local_ep,
-            args.iid,
-            args.lr,
-            args.momentum,
-            args.noise_type,
-            args.noise_group_num,
-            args.group_noise_rate,
-            args.partition)
-    else:
-        result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]'.format(
-            args.dataset,
-            args.method,
-            args.model,
-            args.epochs,
-            args.frac,
-            args.local_bs,
-            args.local_ep,
-            args.iid,
-            args.lr,
-            args.momentum,
-            args.noise_type,
-            args.noise_group_num,
-            args.group_noise_rate)
+    forget_rate_schedule = []
+    if args.method in ['coteaching', 'coteaching+', 'gfilter']:
+        forget_rate = args.forget_rate
+        exponent = 1
+        num_gradual = int(args.epochs * 0.2)
+        forget_rate_schedule = np.ones(args.epochs) * forget_rate
+        forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
 
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
+    # Initialize local weights
+    w_locals = init_local_weights(all_clients=args.all_clients, w_glob=w_glob, num_users=args.num_users)
+    if use_2_models:
+        w_locals2 = init_local_weights(all_clients=args.all_clients, w_glob=w_glob2, num_users=args.num_users)
 
-    f = open(result_dir + result_f + ".csv", 'w', newline='')
-    wr = csv.writer(f)
-    wr.writerow(['epoch', 'train_acc', 'train_loss', 'test_acc', 'test_loss'])
-
-    # Option Save
-    with open(result_dir + result_f + ".txt", 'w') as option_f:
-        option_f.write(str(args))
-
-    if args.all_clients:
-        print("Aggregation over all clients")
-        w_locals = [w_glob for i in range(args.num_users)]
-
+    # Initialize local update objects
     local_update_objects = get_local_update_objects(args, dataset_train, dict_users, user_noise_rates)
-
-    # for logging purposes
-    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
-    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)
 
     for epoch in range(args.epochs):
         if (epoch + 1) in args.schedule:
@@ -246,10 +210,15 @@ if __name__ == '__main__':
             print("{} => {}".format(args.lr, args.lr * args.lr_decay))
             args.lr *= args.lr_decay
 
+        if len(forget_rate_schedule) > 0:
+            args.forget_rate = forget_rate_schedule[epoch]
+
         loss_locals = []
+        loss_locals2 = []
         # Reset local weights if necessary
         if not args.all_clients:
             w_locals = []
+            w_locals2 = []
 
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
@@ -259,44 +228,80 @@ if __name__ == '__main__':
             local = local_update_objects[idx]
             local.args = args
 
-            # Local weights, losses
-            w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
+            if use_2_models:
+                if not args.warm_up or epoch <= args.warm_up:
+                    w, loss, w2, loss2 = local.train(net=copy.deepcopy(net_glob).to(args.device),
+                                                     net2=copy.deepcopy(net_glob2).to(args.device))
+                else:
+                    w1, w2, all_loss = local.train_2_phase(g_epoch=epoch,
+                                                           warmup=args.warm_up,
+                                                           net=copy.deepcopy(net_glob).to(args.device),
+                                                           net2=copy.deepcopy(net_glob2).to(args.device),
+                                                           all_loss=all_loss_lst[idx])
+                    all_loss_lst[idx] = all_loss
+
+                # Second model
+                if args.all_clients:
+                    w_locals2[idx] = copy.deepcopy(w2)
+                else:
+                    w_locals2.append(copy.deepcopy(w2))
+                loss_locals2.append(copy.deepcopy(loss2))
+
+            else:
+                if not args.warm_up or epoch <= args.warm_up:
+                    # Local weights, losses
+                    w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
+                else:
+                    w, loss = local.train_2_phase(net=copy.deepcopy(net_glob).to(args.device),
+                                                  g_epoch=epoch)
+
+            # Single / First model
             if args.all_clients:
                 w_locals[idx] = copy.deepcopy(w)
             else:
                 w_locals.append(copy.deepcopy(w))
             loss_locals.append(copy.deepcopy(loss))
 
-        # Update global weights
-        w_glob = FedAvg(w_locals)
+        w_glob = FedAvg(w_locals)  # update global weights
+        net_glob.load_state_dict(w_glob)  # copy weight to net_glob
+        train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
+        test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)
 
-        # Copy weight to net_glob
-        net_glob.load_state_dict(w_glob)
+        results = dict(
+            train_acc=train_acc,
+            train_loss=train_loss,
+            test_acc=test_acc,
+            test_loss=test_loss,
+        )
 
-        # Print results
-        net_glob.eval()
-        acc_train, loss_train = test_img(net_glob, log_train_data_loader, args)
-        acc_test, loss_test = test_img(net_glob, log_test_data_loader, args)
+        if use_2_models:
+            w_glob2 = FedAvg(w_locals2)
+            net_glob2.load_state_dict(w_glob2)
+            train_acc2, train_loss2 = test_img(net_glob2, log_train_data_loader, args)
+            test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
+
+            results2 = dict(
+                train_acc2=train_acc2,
+                train_loss2=train_loss2,
+                test_acc2=test_acc2,
+                test_loss2=test_loss2,
+            )
+            results = {**results, **results2}
+
+        print('Round {:3d}'.format(epoch))
+        print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
+
+        logger.write(epoch=epoch + 1, **results)
 
         if nsml.IS_ON_NSML:
+            nsml_results = {result_key.replace('_', '__'): result_value
+                            for result_key, result_value in results.items()}
             nsml.report(
                 summary=True,
                 step=epoch,
                 epoch=epoch,
                 lr=args.lr,
-                train__acc=acc_train,
-                train__loss=loss_train,
-                test__acc=acc_test,
-                test__loss=loss_test,
+                **nsml_results,
             )
 
-        print('Round {:3d}'.format(epoch))
-        print("train acc: {}, train loss: {:.6f} \ntest acc: {}, test loss: {:.6f}".format(
-            acc_train,
-            loss_train,
-            acc_test,
-            loss_test,
-        ))
-        wr.writerow([epoch + 1, acc_train, loss_train, acc_test, loss_test])
-
-    f.close()
+    logger.close()

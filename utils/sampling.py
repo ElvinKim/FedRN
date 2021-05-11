@@ -128,4 +128,4 @@ if __name__ == '__main__':
                                        transforms.Normalize((0.1307,), (0.3081,))
                                    ]))
     num = 100
-    d = mnist_noniid(dataset_train, num)
+    d = sample_iid(dataset_train, num)
