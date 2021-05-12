@@ -1,4 +1,4 @@
-#nsml: pytorch/pytorch:1.7.0-cuda11.0-cudnn8-runtime
+#nsml: floydhub/pytorch:1.7.1-gpu.cuda10cudnn7-py3.57
 from distutils.core import setup
 
 setup(
