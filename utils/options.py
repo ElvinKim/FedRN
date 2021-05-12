@@ -11,7 +11,7 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix',
+                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history',
                                  ],
                         help='method name')
 
@@ -31,6 +31,8 @@ def args_parser():
     parser.add_argument('--partition', type=str, help='[label2, labeldir]', default='label2')
     parser.add_argument('--dd_alpha', type=float, default=1.0, help="dirichlet distribution alpha")
     parser.add_argument('--num_shards', type=int, default=200, help="number of shards")
+    parser.add_argument('--fed_method', type=str, default='fedavg', choices=['fedavg'],
+                        help="federated learning method")
 
     # model arguments
     parser.add_argument('--model', type=str, default='mlp', help='model name')
@@ -84,8 +86,8 @@ def args_parser():
     parser.add_argument('--stop_update_epoch', type=int, default=400, help='When to stop updating labels')
     parser.add_argument('--K', type=int, help='the number of history predictions', default=3)
 
-    if sys.argv[0] in ["main_fed_LG_finetuning.py", "main_fed_finetuning.py"]:
-        parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")
+    # finetuning arguments
+    parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")
     
     args = parser.parse_args()
     return args
