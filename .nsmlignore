@@ -1,0 +1,9 @@
+save/
+save_backup/
+save_backup2/
+*.ipynb
+*.md
+*.sh
+*.txt
+.idea
+nsml.py

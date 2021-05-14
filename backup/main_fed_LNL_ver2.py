@@ -2,243 +2,282 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+
 import copy
 import numpy as np
+import random
+
+import torchvision
 from torchvision import datasets, transforms
 import torch
 
-from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
+from utils import CIFAR10Basic, MNIST, Logger
+from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
-from models.Update import LocalUpdate
-from models.Nets import MLP, CNNMnist, CNNCifar, MobileNetCifar
-from models.Fed import FedAvg
-from models.test import test_img
-
-from utils.cifar import CIFAR10, CIFAR100, CIFAR10Basic
-from utils.mnist import MNIST
-
 from utils.utils import noisify_label
 
-import csv
-import os
-import random
+from models.Update import get_local_update_objects
+from models.Nets import get_model
+from models.Fed import LocalModelWeights
+from models.test import test_img
+import nsml
+
 
 if __name__ == '__main__':
     # parse args
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
-    
+    args.schedule = [int(x) for x in args.schedule]
+    args.warm_up = int(args.epochs * 0.2) \
+        if args.method in ['dividemix', 'gmix'] \
+        else 0
+    args.send_2_models = args.method in ['coteaching', 'coteaching+', 'dividemix', ]
+
+    # Reproducing "Robust Fl with NLs"
+    if args.reproduce:
+        args.local_bs = 50
+        args.lr = 0.15
+        args.lr_decay = 1
+        args.weight_decay = 0.0001
+
+    for x in vars(args).items():
+        print(x)
+
+    if not torch.cuda.is_available():
+        exit('ERROR: Cuda is not available!')
+    print('torch version: ', torch.__version__)
+    print('torchvision version: ', torchvision.__version__)
+
     # Seed
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = True
     np.random.seed(args.seed)
 
-    # load dataset and split users
+    ##############################
+    # Load dataset and split users
+    ##############################
     if args.dataset == 'mnist':
-        from six.moves import urllib    
+        from six.moves import urllib
+
         opener = urllib.request.build_opener()
         opener.addheaders = [('User-agent', 'Mozilla/5.0')]
         urllib.request.install_opener(opener)
-        
-        trans_mnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
-        
-        clearn_dataset_train = MNIST(root='./data/mnist',
-                                download=True,  
-                                train=True, 
-                                transform=trans_mnist,
-                                noise_type="clean",
-                         )
-        
-        dataset_train = MNIST(root='./data/mnist',
-                                download=True,  
-                                train=True, 
-                                transform=trans_mnist,
-                                noise_type=args.noise_type,
-                                noise_rate=args.noise_rate
-                         )
-        
-        dataset_test = MNIST(root='./data/mnist',
-                                   download=True,  
-                                   train=False, 
-                                   transform=transforms.ToTensor(),
-                                   noise_type=args.noise_type,
-                                   noise_rate=args.noise_rate
-                            )
-        
-        clean_dataset_test = MNIST(root='./data/mnist',
-                                   download=True,  
-                                   train=False, 
-                                   transform=transforms.ToTensor(),
-                                   noise_type="clean"
-                            )
-        # sample users
-        if args.iid:
-            dict_users = mnist_iid(clearn_dataset_train, args.num_users)
-        else:
-            dict_users = mnist_noniid(clearn_dataset_train, args.num_users)
+
+        trans_mnist = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ])
+        dataset_args = dict(
+            root='./data/mnist',
+            download=True,
+        )
+        dataset_train = MNIST(
+            train=True,
+            transform=trans_mnist,
+            noise_type="clean",
+            **dataset_args,
+        )
+        dataset_test = MNIST(
+            train=False,
+            transform=transforms.ToTensor(),
+            noise_type="clean",
+            **dataset_args,
+        )
+        num_classes = 10
+
     elif args.dataset == 'cifar':
-        trans_cifar10_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
-                                          transforms.RandomHorizontalFlip(),
-                                          transforms.ToTensor(),
-                                          transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                               std=[0.229, 0.224, 0.225])])
-        trans_cifar10_val = transforms.Compose([transforms.ToTensor(),
-                                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                                     std=[0.229, 0.224, 0.225])])
-        dataset_train = CIFAR10Basic(root='./data/cifar',
-                                    download=True,  
-                                    train=True, 
-                                    transform=trans_cifar10_train)
-        
-        dataset_test = CIFAR10Basic(root='./data/cifar',
-                                    download=True,  
-                                    train=False, 
-                                    transform=trans_cifar10_val)
-        
-        if args.iid:
-            dict_users = cifar_iid(dataset_train, args.num_users)
-        else:
-            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
+        trans_cifar10_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])],
+        )
+        trans_cifar10_val = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])],
+        )
+        dataset_train = CIFAR10Basic(
+            root='./data/cifar',
+            download=True,
+            train=True,
+            transform=trans_cifar10_train,
+        )
+        dataset_test = CIFAR10Basic(
+            root='./data/cifar',
+            download=True,
+            train=False,
+            transform=trans_cifar10_val,
+        )
+        num_classes = 10
+
     else:
-        exit('Error: unrecognized dataset')
-        
-    img_size = dataset_train[0][0].shape
-    
-    # noisify step
-    if args.noise_type != "clean":
+        raise NotImplementedError('Error: unrecognized dataset')
+
+    labels = np.array(dataset_train.train_labels)
+    num_imgs = len(dataset_train) // args.num_shards
+    args.img_size = dataset_train[0][0].shape  # used to get model
+    args.num_classes = num_classes
+
+    # Sample users (iid / non-iid)
+    if args.iid:
+        dict_users = sample_iid(dataset_train, args.num_users)
+    else:
+        dict_users = sample_noniid(
+            labels=labels,
+            num_users=args.num_users,
+            num_shards=args.num_shards,
+            num_imgs=num_imgs,
+        )
+
+    ##############################
+    # Add label noise to data
+    ##############################
+    if args.noise_type != "clean" and args.group_noise_rate:
         if sum(args.noise_group_num) != args.num_users:
             exit('Error: sum of the number of noise group have to be equal the number of users')
 
-        noise_rate_lst = []
+        # noise rate for each user
+        user_noise_rates = []
+        for num_users_in_group, group_noise_rate in zip(args.noise_group_num, args.group_noise_rate):
+            user_noise_rates += [group_noise_rate] * num_users_in_group
 
-        for noise_num, noise_rate in zip(args.noise_group_num, args.group_noise_rate):
-            temp_lst = [noise_rate] * noise_num
-            noise_rate_lst += temp_lst
-
-        for i in range(args.num_users):
-            d_idxs_lst = list(copy.deepcopy(dict_users[i]))
-            noise_rate = noise_rate_lst[i]
+        for user, user_noise_rate in enumerate(user_noise_rates):
+            data_indices = list(copy.deepcopy(dict_users[user]))
 
             # for reproduction
             random.seed(args.seed)
-            random.shuffle(d_idxs_lst)
+            random.shuffle(data_indices)
 
-            noise_index = int(len(d_idxs_lst) * noise_rate)
+            noise_index = int(len(data_indices) * user_noise_rate)
 
-            for d_idx in d_idxs_lst[:noise_index]:
+            for d_idx in data_indices[:noise_index]:
                 true_label = dataset_train.train_labels[d_idx]
-                update_label = noisify_label(true_label, num_classes=10, noise_type=args.noise_type)
-                dataset_train.train_labels[d_idx] = update_label
-        
-    # build model
-    if args.model == 'cnn' and args.dataset == 'cifar':
-        net_glob = CNNCifar(args=args).to(args.device)
-    elif args.model == 'cnn' and args.dataset == 'mnist':
-        net_glob = CNNMnist(args=args).to(args.device)
-    elif args.model == 'mlp':
-        len_in = 1
-        for x in img_size:
-            len_in *= x
-        net_glob = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
-    elif args.model == "mobile":
-        net_glob = MobileNetCifar().to(args.device)
+                noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
+                dataset_train.train_labels[d_idx] = noisy_label
     else:
-        exit('Error: unrecognized model')
+        user_noise_rates = [0] * args.num_users
+    print(user_noise_rates)
+
+    # for logging purposes
+    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
+    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)
+
+    ##############################
+    # Build model
+    ##############################
+    net_glob = get_model(args)
+    net_glob = net_glob.to(args.device)
     print(net_glob)
-    net_glob.train()
 
-    # copy weights
-    w_glob = net_glob.state_dict()
+    if args.send_2_models:
+        net_glob2 = get_model(args)
+        net_glob2 = net_glob2.to(args.device)
 
-    # training
-    loss_train = []
-    cv_loss, cv_acc = [], []
-    val_loss_pre, counter = 0, 0
-    net_best = None
-    best_loss = None
-    val_acc_list, net_list = [], []
-   
-    # save results
-    if args.save_dir is None:
-        result_dir = './save/'
-    else:
-        result_dir = './save/{}/'.format(args.save_dir)
-    
-    if args.iid:
-        result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(args.dataset, 
-                                                                                                     args.model, 
-                                                                                                     args.epochs, 
-                                                                                                     args.frac, 
-                                                                                                     args.local_bs, 
-                                                                                                     args.local_ep, 
-                                                                                                     args.iid,
-                                                                                                     args.lr,
-                                                                                                     args.momentum,
-                                                                                                     args.noise_type,
-                                                                                                     args.noise_group_num,
-                                                                                                     args.group_noise_rate,
-                                                                                                     args.partition)
-    else:
-        result_f = 'fedLNL_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]'.format(args.dataset, 
-                                                                                                     args.model, 
-                                                                                                     args.epochs, 
-                                                                                                     args.frac, 
-                                                                                                     args.local_bs, 
-                                                                                                     args.local_ep, 
-                                                                                                     args.iid,
-                                                                                                     args.lr,
-                                                                                                     args.momentum,
-                                                                                                     args.noise_type,
-                                                                                                     args.noise_group_num,
-                                                                                                     args.group_noise_rate)
+    ##############################
+    # Training
+    ##############################
+    logger = Logger(args, args.send_2_models)
 
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
-     
-    f = open(result_dir + result_f + ".csv", 'w', newline='')
-    wr = csv.writer(f)
-    wr.writerow(['epoch','train_acc', 'train_loss', 'test_acc', 'test_loss'])
-    
-    # Option Save
-    with open(result_dir + result_f + ".txt", 'w') as option_f:
-        option_f.write(str(args))
-    
-    if args.all_clients: 
-        print("Aggregation over all clients")
-        w_locals = [w_glob for i in range(args.num_users)]
-    for iter in range(args.epochs):
-        loss_locals = []
-        if not args.all_clients:
-            w_locals = []
+    forget_rate_schedule = []
+    if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix']:
+        forget_rate = args.forget_rate
+        exponent = 1
+        num_gradual = int(args.epochs * 0.2)
+        forget_rate_schedule = np.ones(args.epochs) * forget_rate
+        forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
+
+    # Initialize local model weights
+    fed_args = dict(
+        all_clients=args.all_clients,
+        num_users=args.num_users,
+        method=args.fed_method,
+    )
+    local_weights = LocalModelWeights(net_glob=net_glob, **fed_args)
+    if args.send_2_models:
+        local_weights2 = LocalModelWeights(net_glob=net_glob2, **fed_args)
+
+    # Initialize local update objects
+    local_update_objects = get_local_update_objects(
+        args=args,
+        dataset_train=dataset_train,
+        dict_users=dict_users,
+        noise_rates=user_noise_rates,
+        net_glob=net_glob,
+    )
+
+    for epoch in range(args.epochs):
+        if (epoch + 1) in args.schedule:
+            print("Learning Rate Decay Epoch {}".format(epoch + 1))
+            print("{} => {}".format(args.lr, args.lr * args.lr_decay))
+            args.lr *= args.lr_decay
+
+        if len(forget_rate_schedule) > 0:
+            args.forget_rate = forget_rate_schedule[epoch]
+
+        local_losses = []
+        local_losses2 = []
+        args.g_epoch = epoch
+
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 
+        # Local Update
         for idx in idxs_users:
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-            w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
-            if args.all_clients:
-                w_locals[idx] = copy.deepcopy(w)
+            local = local_update_objects[idx]
+            local.args = args
+
+            if args.send_2_models:
+                w, loss, w2, loss2 = local.train(copy.deepcopy(net_glob).to(args.device),
+                                                 copy.deepcopy(net_glob2).to(args.device))
+                local_weights.update(idx, w)
+                local_losses.append(copy.deepcopy(loss))
+                local_weights2.update(idx, w2)
+                local_losses2.append(copy.deepcopy(loss2))
+
             else:
-                w_locals.append(copy.deepcopy(w))
-            loss_locals.append(copy.deepcopy(loss))
-        # update global weights
-        w_glob = FedAvg(w_locals)
+                w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
+                local_weights.update(idx, w)
+                local_losses.append(copy.deepcopy(loss))
 
-        # copy weight to net_glob
-        net_glob.load_state_dict(w_glob)
+        w_glob = local_weights.average()  # update global weights
+        net_glob.load_state_dict(w_glob)  # copy weight to net_glob
+        local_weights.init()
 
-        # print result
-        net_glob.eval()
-        acc_train, loss_train = test_img(net_glob, dataset_train, args)
-        acc_test, loss_test = test_img(net_glob, dataset_test, args)
-        print('Round {:3d}'.format(iter))
-        print("train acc: {}, train loss: {} \n test acc: {}, test loss: {}".format(acc_train.item(), 
-                                                                                    loss_train, 
-                                                                                    acc_test.item(), 
-                                                                                    loss_test))
-        wr.writerow([iter + 1, acc_train.item(), loss_train, acc_test.item(), loss_test])
-    f.close()
+        # for logging purposes
+        train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
+        test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)
+        results = dict(train_acc=train_acc, train_loss=train_loss,
+                       test_acc=test_acc, test_loss=test_loss,)
+
+        if args.send_2_models:
+            w_glob2 = local_weights2.average()
+            net_glob2.load_state_dict(w_glob2)
+            local_weights2.init()
+
+            # for logging purposes
+            train_acc2, train_loss2 = test_img(net_glob2, log_train_data_loader, args)
+            test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
+            results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
+                            test_acc2=test_acc2, test_loss2=test_loss2,)
+            results = {**results, **results2}
+
+        print('Round {:3d}'.format(epoch))
+        print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
+
+        logger.write(epoch=epoch + 1, **results)
+
+        if nsml.IS_ON_NSML:
+            nsml_results = {result_key.replace('_', '__'): result_value
+                            for result_key, result_value in results.items()}
+            nsml.report(
+                summary=True,
+                step=epoch,
+                epoch=epoch,
+                lr=args.lr,
+                **nsml_results,
+            )
+
+    logger.close()

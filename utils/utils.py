@@ -7,6 +7,7 @@ import numpy as np
 from numpy.testing import assert_array_almost_equal
 import random
 
+
 def check_integrity(fpath, md5):
     if not os.path.isfile(fpath):
         return False
@@ -95,6 +96,7 @@ def list_files(root, suffix, prefix=False):
 
     return files
 
+
 # basic function
 def multiclass_noisify(y, P, random_state=0):
     """ Flip classes according to transition probability matrix T.
@@ -133,12 +135,11 @@ def noisify_pairflip(y_train, noise, random_state=None, nb_classes=10):
     if n > 0.0:
         # 0 -> 1
         P[0, 0], P[0, 1] = 1. - n, n
-        for i in range(1, nb_classes-1):
+        for i in range(1, nb_classes - 1):
             P[i, i], P[i, i + 1] = 1. - n, n
-        P[nb_classes-1, nb_classes-1], P[nb_classes-1, 0] = 1. - n, n
+        P[nb_classes - 1, nb_classes - 1], P[nb_classes - 1, 0] = 1. - n, n
 
-        y_train_noisy = multiclass_noisify(y_train, P=P,
-                                           random_state=random_state)
+        y_train_noisy = multiclass_noisify(y_train, P=P, random_state=random_state)
         actual_noise = (y_train_noisy != y_train).mean()
         assert actual_noise > 0.0
         print('Actual noise %.2f' % actual_noise)
@@ -146,6 +147,7 @@ def noisify_pairflip(y_train, noise, random_state=None, nb_classes=10):
     print(P)
 
     return y_train, actual_noise
+
 
 def noisify_multiclass_symmetric(y_train, noise, random_state=None, nb_classes=10):
     """mistakes:
@@ -158,12 +160,15 @@ def noisify_multiclass_symmetric(y_train, noise, random_state=None, nb_classes=1
     if n > 0.0:
         # 0 -> 1
         P[0, 0] = 1. - n
-        for i in range(1, nb_classes-1):
+        for i in range(1, nb_classes - 1):
             P[i, i] = 1. - n
-        P[nb_classes-1, nb_classes-1] = 1. - n
+        P[nb_classes - 1, nb_classes - 1] = 1. - n
 
-        y_train_noisy = multiclass_noisify(y_train, P=P,
-                                           random_state=random_state)
+        y_train_noisy = multiclass_noisify(
+            y_train,
+            P=P,
+            random_state=random_state,
+        )
         actual_noise = (y_train_noisy != y_train).mean()
         assert actual_noise > 0.0
         print('Actual noise %.2f' % actual_noise)
@@ -172,11 +177,27 @@ def noisify_multiclass_symmetric(y_train, noise, random_state=None, nb_classes=1
 
     return y_train, actual_noise
 
-def noisify(dataset='mnist', nb_classes=10, train_labels=None, noise_type=None, noise_rate=0, random_state=0):
+
+def noisify(nb_classes=10, train_labels=None, noise_type=None, noise_rate=0, random_state=0):
+    train_noisy_labels = None
+    actual_noise_rate = None
+
     if noise_type == 'pairflip':
-        train_noisy_labels, actual_noise_rate = noisify_pairflip(train_labels, noise_rate, random_state=0, nb_classes=nb_classes)
-    if noise_type == 'symmetric':
-        train_noisy_labels, actual_noise_rate = noisify_multiclass_symmetric(train_labels, noise_rate, random_state=0, nb_classes=nb_classes)
+        train_noisy_labels, actual_noise_rate = noisify_pairflip(
+            train_labels,
+            noise_rate,
+            random_state=random_state,
+            nb_classes=nb_classes,
+        )
+
+    elif noise_type == 'symmetric':
+        train_noisy_labels, actual_noise_rate = noisify_multiclass_symmetric(
+            train_labels,
+            noise_rate,
+            random_state=random_state,
+            nb_classes=nb_classes,
+        )
+
     return train_noisy_labels, actual_noise_rate
 
 
@@ -185,5 +206,6 @@ def noisify_label(true_label, num_classes=10, noise_type="symmetric"):
         label_lst = list(range(num_classes))
         label_lst.remove(true_label)
         return random.sample(label_lst, k=1)[0]
+
     elif noise_type == "pairflip":
-        return (true_label - 1) % 10
+        return (true_label - 1) % num_classes

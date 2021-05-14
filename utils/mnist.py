@@ -43,8 +43,8 @@ class MNIST(data.Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.train = train  # training set or test set
-        self.dataset='mnist'
-        self.noise_type=noise_type
+        self.dataset = 'mnist'
+        self.noise_type = noise_type
 
         if download:
             self.download()
@@ -58,11 +58,14 @@ class MNIST(data.Dataset):
                 os.path.join(self.root, self.processed_folder, self.training_file))
 
             if noise_type != 'clean':
-                self.train_labels=np.asarray([[self.train_labels[i]] for i in range(len(self.train_labels))])
-                self.train_noisy_labels, self.actual_noise_rate = noisify(dataset=self.dataset, train_labels=self.train_labels, noise_type=noise_type, noise_rate=noise_rate, random_state=random_state)
-                self.train_noisy_labels=[i[0] for i in self.train_noisy_labels]
-                _train_labels=[i[0] for i in self.train_labels]
-                self.noise_or_not = np.transpose(self.train_noisy_labels)==np.transpose(_train_labels)
+                self.train_labels = np.asarray([[self.train_labels[i]] for i in range(len(self.train_labels))])
+                self.train_noisy_labels, self.actual_noise_rate = noisify(dataset=self.dataset,
+                                                                          train_labels=self.train_labels,
+                                                                          noise_type=noise_type, noise_rate=noise_rate,
+                                                                          random_state=random_state)
+                self.train_noisy_labels = [i[0] for i in self.train_noisy_labels]
+                _train_labels = [i[0] for i in self.train_labels]
+                self.noise_or_not = np.transpose(self.train_noisy_labels) == np.transpose(_train_labels)
         else:
             self.test_data, self.test_labels = torch.load(
                 os.path.join(self.root, self.processed_folder, self.test_file))
@@ -76,7 +79,7 @@ class MNIST(data.Dataset):
             tuple: (image, target) where target is index of the target class.
         """
         if self.train:
-            #if self.noise_type is not None:
+            # if self.noise_type is not None:
             if self.noise_type != 'clean':
                 img, target = self.train_data[index], self.train_noisy_labels[index]
             else:
@@ -104,7 +107,7 @@ class MNIST(data.Dataset):
 
     def _check_exists(self):
         return os.path.exists(os.path.join(self.root, self.processed_folder, self.training_file)) and \
-            os.path.exists(os.path.join(self.root, self.processed_folder, self.test_file))
+               os.path.exists(os.path.join(self.root, self.processed_folder, self.test_file))
 
     def download(self):
         """Download the MNIST data if it doesn't exist in processed_folder already."""
