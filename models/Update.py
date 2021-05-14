@@ -172,6 +172,9 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
         elif args.method == 'history':
             local_update_object = LocalUpdateHS(**local_update_args)
 
+        elif args.method == 'lgteaching':
+            local_update_object = LocalUpdateLGteaching(l_net=net_glob, **local_update_args)
+
         local_update_objects.append(local_update_object)
 
     return local_update_objects
@@ -556,6 +559,20 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
             loss_1 = torch.sum(update_step * cross_entropy_1) / y_true.size()[0]
             loss_2 = torch.sum(update_step * cross_entropy_2) / y_true.size()[0]
         return loss_1, loss_2
+
+
+class LocalUpdateLGteaching(LocalUpdateCoteaching):
+    def __init__(self, args, dataset=None, idxs=None, l_net=None):
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+        )
+        self.l_net = copy.deepcopy(l_net)
+
+    def train(self, net, net2=None):
+        w_g, loss1, w_l, loss2 = self.train_multiple_models(net, self.l_net)
+        return w_g, loss1
 
 
 class LocalUpdateLGFineTuning(BaseLocalUpdate):

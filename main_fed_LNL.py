@@ -182,7 +182,7 @@ if __name__ == '__main__':
     logger = Logger(args, args.send_2_models)
 
     forget_rate_schedule = []
-    if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix']:
+    if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
         forget_rate = args.forget_rate
         exponent = 1
         num_gradual = int(args.epochs * 0.2)

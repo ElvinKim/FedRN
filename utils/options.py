@@ -11,7 +11,7 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history',
+                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching',
                                  ],
                         help='method name')
 
