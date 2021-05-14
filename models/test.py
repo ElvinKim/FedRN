@@ -95,3 +95,19 @@ def joint_opt_loss(outputs, soft_targets, alpha=1.2, beta=0.8):
 
     loss = L_c + alpha * L_p + beta * L_e
     return probs, loss
+
+
+def test_img_local_all(net_local_list, args, dataset_test, dict_users_test, return_all=False):
+    acc_test_local = np.zeros(args.num_users)
+    loss_test_local = np.zeros(args.num_users)
+    for idx in range(args.num_users):
+        net_local = net_local_list[idx]
+        net_local.eval()
+        a, b = test_img_local(net_local, dataset_test, args, user_idx=idx, idxs=dict_users_test[idx])
+
+        acc_test_local[idx] = a
+        loss_test_local[idx] = b
+
+    if return_all:
+        return acc_test_local, loss_test_local
+    return acc_test_local.mean(), loss_test_local.mean()
