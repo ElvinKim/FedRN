@@ -175,6 +175,9 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
         elif args.method == 'lgteaching':
             local_update_object = LocalUpdateLGteaching(l_net=net_glob, **local_update_args)
 
+        elif args.method == 'fedprox':
+            local_update_object = LocalUpdateFedProx(**local_update_args)
+
         local_update_objects.append(local_update_object)
 
     return local_update_objects
@@ -323,6 +326,39 @@ class BaseLocalUpdate:
 
     def on_epoch_end(self):
         pass
+
+
+class LocalUpdateFedProx(BaseLocalUpdate):
+    def __init__(self, args, dataset=None, idxs=None):
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+        )
+        self.glob_net = None
+        self.fed_prox_mu = args.init_fed_prox_mu
+
+    def forward_pass(self, batch, net, net2=None):
+        if self.epoch == 0 and self.batch_idx == 0:
+            self.glob_net = copy.deepcopy(net)
+
+            if self.args.g_epoch == int(self.args.epochs * 0.7):
+                self.fed_prox_mu *= 10
+
+        images, labels = batch
+        images = images.to(self.args.device)
+        labels = labels.to(self.args.device)
+
+        log_probs = net(images)
+        loss = self.loss_func(log_probs, labels)
+
+        # for fedprox
+        fed_prox_reg = 0.0
+        for l_param, g_param in zip(net.parameters(), self.glob_net.parameters()):
+            fed_prox_reg += (self.fed_prox_mu / 2 * torch.norm((l_param - g_param)) ** 2)
+        loss += fed_prox_reg
+
+        return loss
 
 
 class LocalUpdateSELFIE(BaseLocalUpdate):
