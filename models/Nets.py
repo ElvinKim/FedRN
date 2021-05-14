@@ -25,6 +25,9 @@ def get_model(args):
 
     elif args.model == "mobile":
         model = MobileNetCifar()
+        
+    elif args.model == "cnn4conv":
+        model = CNN4Conv(args=args)
 
     else:
         raise NotImplementedError('Error: unrecognized model')
