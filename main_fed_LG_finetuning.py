@@ -10,7 +10,7 @@ import numpy as np
 from torchvision import datasets, transforms
 import torch
 
-from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
+from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid, non_iid
 from utils.options import args_parser
 from models.Update import LocalUpdate, LocalUpdateLGFineTuning
 from models.Nets import MLP, CNNMnist, CNNCifar, MobileNetCifar
@@ -48,7 +48,6 @@ if __name__ == '__main__':
     
     
     # Co-teaching setup
-    
     args.num_gradual = int(args.epochs * 0.2)
     forget_rate = args.forget_rate
     exponent = 1
@@ -126,7 +125,11 @@ if __name__ == '__main__':
         if args.iid:
             dict_users = cifar_iid(dataset_train, args.num_users)
         else:
-            dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
+            if args.test_partition:
+                dict_users, rand_set_all = non_iid(dataset_train, args.num_users, shard_per_user=2)
+                dict_test_users, rand_set_all = non_iid(dataset_test, args.num_users, shard_per_user=2, rand_set_all=rand_set_all, mode='test')
+            else:
+                dict_users = cifar_noniid(dataset_train, args.num_users, partition=args.partition)
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
@@ -193,8 +196,7 @@ if __name__ == '__main__':
     w_local_lst = []
     
     for idx in range(args.num_users):
-        w_local_lst.append(copy.deepcopy(w_glob))
-    
+        w_local_lst.append(MobileNetCifar().to(args.device).state_dict())
     
     # training
     loss_train = []
@@ -266,11 +268,25 @@ if __name__ == '__main__':
         for idx in idxs_users:
             local = LocalUpdateLGFineTuning(args=args, dataset=dataset_train, idxs=dict_users[idx])
             net_local.load_state_dict(w_local_lst[idx])
+            
+            if args.test_partition:
+                test_dataset = []
+                for d_idx in dict_test_users[idx]:
+                    test_dataset.append(dataset_test[d_idx])
+                
+                acc_local, loss_local = test_img(net_local, test_dataset, args)
+                print("before tuning", idx, acc_local)
+            
             w_g, w_l, loss = local.train(g_net=copy.deepcopy(net_glob).to(args.device),
                                          l_net=copy.deepcopy(net_local).to(args.device),
                                          forget_rate=rate_schedule[iter])
+            net_local.load_state_dict(w_l)
             
-            w_local_lst[idx] = copy.deepcopy(w_l)
+            if args.test_partition:
+                acc_local, loss_local = test_img(net_local, test_dataset, args)
+                print("after tuning", idx, acc_local)
+                
+            # w_local_lst[idx] = copy.deepcopy(w_l)
             w_glob_lst.append(copy.deepcopy(w_g)) 
             
         # update global weights
