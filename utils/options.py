@@ -11,7 +11,7 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history',
+                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox',
                                  ],
                         help='method name')
 
@@ -35,7 +35,8 @@ def args_parser():
                         help="federated learning method")
 
     # model arguments
-    parser.add_argument('--model', type=str, default='mlp', help='model name')
+    parser.add_argument('--model', type=str, default='mlp', choices=['mlp', 'cnn', 'mobile', 'cnn4conv'],
+                        help='model name')
     parser.add_argument('--kernel_num', type=int, default=9, help='number of each kind of kernel')
     parser.add_argument('--kernel_sizes', type=str, default='3,4,5',
                         help='comma-separated kernel size to use for convolution')
@@ -75,7 +76,10 @@ def args_parser():
     parser.add_argument('--lambda_u', default=25, type=float, help='weight for unsupervised loss')
     parser.add_argument('--T', default=0.5, type=float)
     parser.add_argument('--p_threshold', default=0.5, type=float)
-    
+
+    # FedProx
+    parser.add_argument('--init_fed_prox_mu', default=0.01, type=float)
+
     # save arguments
     parser.add_argument('--save_dir', type=str, default=None, help="name of save directory")
     
