@@ -44,8 +44,8 @@ def args_parser():
     parser.add_argument('--num_filters', type=int, default=32, help="number of filters for conv nets")
     parser.add_argument('--max_pool', type=str, default='True',
                         help="Whether use max pooling rather than strided convolutions")
-    parser.add_argument('--reproduce', action='store_true', help = 'reproduce paper code')
-    
+    parser.add_argument('--reproduce', action='store_true', help='reproduce paper code')
+
     # other arguments
     parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset")
     parser.add_argument('--iid', action='store_true', help='whether i.i.d or not')
@@ -58,7 +58,7 @@ def args_parser():
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
     
     # noise label arguments
-    parser.add_argument('--noise_type', type=str, help='[pairflip, symmetric]', default='pairflip')
+    parser.add_argument('--noise_type', type=str, default='pairflip', choices=['pairflip', 'symmetric', 'clean'])
     parser.add_argument('--noise_group_num', nargs='+', default=[100], type=int)
     parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float)
 

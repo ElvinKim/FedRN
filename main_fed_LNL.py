@@ -8,10 +8,10 @@ import numpy as np
 import random
 
 import torchvision
-from torchvision import datasets, transforms
+from torchvision import transforms
 import torch
 
-from utils import CIFAR10Basic, MNIST, Logger
+from utils import CIFAR10, MNIST, Logger
 from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
 from utils.utils import noisify_label
@@ -99,15 +99,15 @@ if __name__ == '__main__':
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])],
         )
-        dataset_train = CIFAR10Basic(
+        dataset_train = CIFAR10(
             root='./data/cifar',
-            download=True,
+            download=not nsml.IS_ON_NSML,
             train=True,
             transform=trans_cifar10_train,
         )
-        dataset_test = CIFAR10Basic(
+        dataset_test = CIFAR10(
             root='./data/cifar',
-            download=True,
+            download=not nsml.IS_ON_NSML,
             train=False,
             transform=trans_cifar10_val,
         )

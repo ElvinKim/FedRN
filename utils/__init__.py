@@ -3,5 +3,5 @@
 # @python: 3.6
 
 from .logger import Logger
-from .cifar import CIFAR10Basic
+from .cifar import CIFAR10
 from .mnist import MNIST
