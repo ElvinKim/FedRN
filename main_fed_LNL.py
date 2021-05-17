@@ -22,7 +22,6 @@ from models.Fed import LocalModelWeights
 from models.test import test_img
 import nsml
 
-
 if __name__ == '__main__':
     # parse args
     args = args_parser()
@@ -182,7 +181,7 @@ if __name__ == '__main__':
     logger = Logger(args, args.send_2_models)
 
     forget_rate_schedule = []
-    if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
+    if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching', 'RFL']:
         forget_rate = args.forget_rate
         exponent = 1
         num_gradual = int(args.epochs * 0.2)
@@ -199,6 +198,9 @@ if __name__ == '__main__':
     if args.send_2_models:
         local_weights2 = LocalModelWeights(net_glob=net_glob2, **fed_args)
 
+        
+    f_G = torch.zeros(10, 128)
+    
     # Initialize local update objects
     local_update_objects = get_local_update_objects(
         args=args,
@@ -206,6 +208,7 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=user_noise_rates,
         net_glob=net_glob,
+        f_G=f_G
     )
 
     for epoch in range(args.epochs):
@@ -220,7 +223,8 @@ if __name__ == '__main__':
         local_losses = []
         local_losses2 = []
         args.g_epoch = epoch
-
+        f_locals = []
+        
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 
@@ -238,13 +242,27 @@ if __name__ == '__main__':
                 local_losses2.append(copy.deepcopy(loss2))
 
             else:
-                w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
+                if args.method == 'RFL':
+                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device))
+                    f_locals.append(copy.deepcopy(f_k))
+                else:
+                    w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
 
         w_glob = local_weights.average()  # update global weights
         net_glob.load_state_dict(w_glob)  # copy weight to net_glob
         local_weights.init()
+        
+        if args.method == 'RFL':
+            sim = torch.nn.CosineSimilarity()
+            tmp = 0
+            w_sum = 0
+            for i in f_locals:
+                w_sum += cos(f_G, i)
+                tmp += cos(f_G, i) * i
+            f_G = torch.div(tmp, w_sum)
+        
 
         # for logging purposes
         train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)

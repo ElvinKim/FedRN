@@ -9,8 +9,8 @@ import torch.nn.functional as F
 
 def get_model(args):
     if args.model == 'cnn' and args.reproduce:
-        model = CNN(input_channel=args.num_channels, n_outputs=args.num_classes)
-
+        model = CNN(input_channel=args.num_channels, n_outputs=args.num_classes, feature_return=args.feature_return)
+ 
     elif args.model == 'cnn' and args.dataset == 'cifar':
         model = CNNCifar(args=args)
 
@@ -97,9 +97,10 @@ def call_bn(bn, x):
 
 
 class CNN(nn.Module):
-    def __init__(self, input_channel=3, n_outputs=10, dropout_rate=0.25, top_bn=False):
+    def __init__(self, input_channel=3, n_outputs=10, dropout_rate=0.25, top_bn=False, feature_return=False):
         self.dropout_rate = dropout_rate
         self.top_bn = top_bn
+        self.feature_return = feature_return
         super(CNN, self).__init__()
         self.c1 = nn.Conv2d(input_channel, 128, kernel_size=3, stride=1, padding=1)
         self.c2 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
@@ -121,7 +122,7 @@ class CNN(nn.Module):
         self.bn8 = nn.BatchNorm2d(256)
         self.bn9 = nn.BatchNorm2d(128)
 
-    def forward(self, x, ):
+    def forward(self, x):
         h = x
         h = self.c1(h)
         h = F.leaky_relu(call_bn(self.bn1, h), negative_slope=0.01)
@@ -153,6 +154,8 @@ class CNN(nn.Module):
         logit = self.l_c1(h)
         if self.top_bn:
             logit = call_bn(self.bn_c1, logit)
+        if self.feature_return:
+            return logit, h
         return logit
 
 

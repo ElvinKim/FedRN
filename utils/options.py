@@ -11,7 +11,7 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox',
+                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox', 'RFL'
                                  ],
                         help='method name')
 
@@ -92,6 +92,12 @@ def args_parser():
 
     # finetuning arguments
     parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")
+    
+    # RFL arguments
+    parser.add_argument('--T_pl', type=int, help = 'T_pl', default=10)
+    parser.add_argument('--lambda_cen', type=float, help = 'lambda_cen', default=1.0)
+    parser.add_argument('--lambda_e', type=float, help = 'lambda_e', default=0.8)
+    parser.add_argument('--feature_return', action='store_true', help = 'feature extraction')
     
     args = parser.parse_args()
     return args
