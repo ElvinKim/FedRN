@@ -138,25 +138,44 @@ if __name__ == '__main__':
     if args.noise_type != "clean" and args.group_noise_rate:
         if sum(args.noise_group_num) != args.num_users:
             exit('Error: sum of the number of noise group have to be equal the number of users')
-
-        # noise rate for each user
+        
+        
         user_noise_rates = []
-        for num_users_in_group, group_noise_rate in zip(args.noise_group_num, args.group_noise_rate):
-            user_noise_rates += [group_noise_rate] * num_users_in_group
+        
+        if args.experiment in ["case1", "case2"]:
+            # noise rate for each user
+            for num_users_in_group, group_noise_rate in zip(args.noise_group_num, args.group_noise_rate):
+                user_noise_rates += [group_noise_rate] * num_users_in_group
 
-        for user, user_noise_rate in enumerate(user_noise_rates):
-            data_indices = list(copy.deepcopy(dict_users[user]))
+            for user, user_noise_rate in enumerate(user_noise_rates):
+                data_indices = list(copy.deepcopy(dict_users[user]))
 
-            # for reproduction
-            random.seed(args.seed)
-            random.shuffle(data_indices)
+                # for reproduction
+                random.seed(args.seed)
+                random.shuffle(data_indices)
 
-            noise_index = int(len(data_indices) * user_noise_rate)
+                noise_index = int(len(data_indices) * user_noise_rate)
 
-            for d_idx in data_indices[:noise_index]:
-                true_label = dataset_train.train_labels[d_idx]
-                noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
-                dataset_train.train_labels[d_idx] = noisy_label
+                for d_idx in data_indices[:noise_index]:
+                    true_label = dataset_train.train_labels[d_idx]
+                    noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
+                    dataset_train.train_labels[d_idx] = noisy_label
+        elif args.experiment in ["case3"]:
+            for user in range(args.num_users):
+                data_indices = list(copy.deepcopy(dict_users[user]))
+                
+                random.seed(args.seed)
+                random.shuffle(data_indices)
+                noise_rate = 0.6 / (args.num_users  - 1) * user
+                user_noise_rates.append(noise_rate)
+                
+                noise_index = int(noise_rate * 500)
+                
+                for d_idx in data_indices[:noise_index]:
+                    true_label = dataset_train.train_labels[d_idx]
+                    noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
+                    dataset_train.train_labels[d_idx] 
+                
     else:
         user_noise_rates = [0] * args.num_users
     print(user_noise_rates)
@@ -175,6 +194,9 @@ if __name__ == '__main__':
     if args.send_2_models:
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
+    
+    if args.method in ['lgfinetune', 'lgteaching']:
+        net_local_lst = []
 
     ##############################
     # Training
@@ -183,11 +205,16 @@ if __name__ == '__main__':
 
     forget_rate_schedule = []
     if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
-        forget_rate = args.forget_rate
-        exponent = 1
-        num_gradual = int(args.epochs * 0.2)
-        forget_rate_schedule = np.ones(args.epochs) * forget_rate
-        forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
+        if args.experiment in ['case1', 'case2']:
+            forget_rate = args.forget_rate
+            exponent = 1
+            num_gradual = int(args.epochs * 0.2)
+            forget_rate_schedule = np.ones(args.epochs) * forget_rate
+            forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
+        elif args.experiment in ['case3']:
+            forget_rate = args.forget_rate
+            exponent = 1
+            forget_rate_schedule = np.linspace(0, forget_rate ** exponent, args.epochs)
 
     # Initialize local model weights
     fed_args = dict(
@@ -223,7 +250,7 @@ if __name__ == '__main__':
 
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-
+        
         # Local Update
         for idx in idxs_users:
             local = local_update_objects[idx]
@@ -241,7 +268,7 @@ if __name__ == '__main__':
                 w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
-
+                
         w_glob = local_weights.average()  # update global weights
         net_glob.load_state_dict(w_glob)  # copy weight to net_glob
         local_weights.init()
