@@ -174,7 +174,7 @@ if __name__ == '__main__':
                 for d_idx in data_indices[:noise_index]:
                     true_label = dataset_train.train_labels[d_idx]
                     noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
-                    dataset_train.train_labels[d_idx] 
+                    dataset_train.train_labels[d_idx] = noisy_label
                 
     else:
         user_noise_rates = [0] * args.num_users
