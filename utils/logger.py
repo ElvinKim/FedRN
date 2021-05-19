@@ -23,7 +23,7 @@ class Logger:
             args.iid,
             args.lr,
             args.momentum,
-            args.noise_type,
+            args.noise_type_lst,
             args.noise_group_num,
             args.group_noise_rate,
             args.partition,

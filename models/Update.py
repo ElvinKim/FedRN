@@ -131,7 +131,7 @@ class SemiLoss:
         return Lx + lamb * Lu
 
 
-def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, net_glob=None):
+def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, net_glob=None, net_local_lst=None):
     local_update_objects = []
     for idx, noise_rate in zip(range(args.num_users), noise_rates):
         local_update_args = dict(
@@ -139,6 +139,7 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
             dataset=dataset_train,
             idxs=dict_users[idx],
         )
+        
         if args.method == 'default':
             local_update_object = BaseLocalUpdate(**local_update_args)
 
@@ -214,8 +215,8 @@ class BaseLocalUpdate:
         net.train()
 
         if self.is_babu:
-            body_params = [p for name, p in net.named_parameters() if 'fc3' not in name]
-            head_params = [p for name, p in net.named_parameters() if 'fc3' in name]
+            body_params = [p for name, p in net.named_parameters() if 'linear' not in name]
+            head_params = [p for name, p in net.named_parameters() if 'linear' in name]
 
             optimizer = torch.optim.SGD([{'params': body_params, 'lr': self.args.lr, 'momentum': self.args.momentum},
                                          {'params': head_params, 'lr': 0.0}])
@@ -530,6 +531,7 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
             y_true=labels,
             forget_rate=self.args.forget_rate,
         )
+        
         if self.is_coteaching_plus and self.epoch >= self.init_epoch:
             loss1, loss2 = self.loss_coteaching_plus(indices=indices, step=self.epoch * self.batch_idx, **loss_args)
         else:
@@ -619,6 +621,7 @@ class LocalUpdateLGFineTuning(BaseLocalUpdate):
             idxs=idxs,
         )
         self.loss_func_no_re = nn.CrossEntropyLoss(reduce=False)
+        self.loss_func = nn.CrossEntropyLoss()
         self.finetuning_train = DataLoader(
             DatasetSplit(dataset, idxs, idx_return=True),
             batch_size=self.args.local_bs,
@@ -626,9 +629,9 @@ class LocalUpdateLGFineTuning(BaseLocalUpdate):
         )
         self.l_net = copy.deepcopy(l_net)
 
-    def train(self, net, net2=None):
+    def train(self, net, net2=None, gmm_infer=False):
         g_net = net
-        l_net = self.l_net
+        l_net = copy.deepcopy(self.l_net)
 
         g_net.train()
         l_net.train()
@@ -638,51 +641,118 @@ class LocalUpdateLGFineTuning(BaseLocalUpdate):
         l_w = l_net.state_dict()
 
         for key in g_w.keys():
-            if 'fc3' not in key:
+            if 'linear' not in key:
                 l_w[key] = copy.deepcopy(g_w[key])
 
-        l_net.load_state_dict(l_w)
+        l_net.load_state_dict(l_w, strict=False)
         l_optimizer = torch.optim.SGD(l_net.parameters(), lr=self.args.lr, momentum=self.args.momentum,
                                       weight_decay=self.args.weight_decay)
+        
+        g_optimizer = torch.optim.SGD(g_net.parameters(), lr=self.args.lr, momentum=self.args.momentum,
+                                      weight_decay=self.args.weight_decay)
 
+        g_net.eval()
+        
         # fine-tuning
         for iter in range(self.args.ft_local_ep):
             for batch_idx, (images, labels, indexes) in enumerate(self.finetuning_train):
                 images, labels = images.to(self.args.device), labels.to(self.args.device)
                 l_net.zero_grad()
-                log_probs = l_net(images)
-                loss = self.loss_func(log_probs, labels)
+                
+                l_probs = l_net(images)
+#                 g_probs = g_net(images)
+                
+#                 # Select clean data
+#                 g_loss = self.loss_func_no_re(g_probs, labels)
+                
+#                 if gmm_infer:
+#                     pass
+#                 else:
+#                     ind_sorted = np.argsort(g_loss.data.cpu()).cuda()
+#                     loss_sorted = g_loss[ind_sorted]
+
+#                     remember_rate = 1 - self.args.forget_rate
+#                     num_remember = int(remember_rate * len(loss_sorted))
+
+#                     ind_update = ind_sorted[:num_remember]
+                
+#                 loss_update = self.loss_func(l_probs[ind_update], labels[ind_update])
+                
+#                 loss_l = torch.sum(loss_update) / num_remember
+#                 loss_l.backward()
+                loss = self.loss_func(l_probs, labels)
+                
                 loss.backward()
                 l_optimizer.step()
-
-        # Select clean data
+                
         l_net.eval()
-        loss_idx_lst = []
-        for batch_idx, (images, labels, indexes) in enumerate(self.finetuning_train):
-            images, labels = images.to(self.args.device), labels.to(self.args.device)
-            log_probs = l_net(images)
-            loss = self.loss_func_no_re(log_probs, labels)
+        epoch_loss = []
+        
+        g_net.train()
+        
+        # Received global model training
+        for local_ep in range(self.args.local_ep):
+            batch_loss = []
+            
+            for batch_idx, (images, labels) in enumerate(self.ldr_train):
+                images, labels = images.to(self.args.device), labels.to(self.args.device)
+                g_net.zero_grad()
+                
+                l_probs = l_net(images)
+                g_probs = g_net(images)
+                
+                # Select clean data
+                l_loss = self.loss_func_no_re(l_probs, labels)
+                
+                if gmm_infer:
+                    pass
+                else:
+                    ind_sorted = np.argsort(l_loss.data.cpu()).cuda()
+                    loss_sorted = l_loss[ind_sorted]
 
-            for l, i in zip(loss, indexes):
-                loss_idx_lst.append([l.item(), i.item()])
+                    remember_rate = 1 - self.args.forget_rate
+                    num_remember = int(remember_rate * len(loss_sorted))
 
-        loss_idx_lst.sort(key=lambda x: x[0])
+                    ind_update = ind_sorted[:num_remember]
+                
+                loss_update = self.loss_func(g_probs[ind_update], labels[ind_update])
+                
+                loss_g = torch.sum(loss_update) / num_remember
+                
+                loss_g.backward()
+                g_optimizer.step()
+                
+                batch_loss.append(loss_g.item())
+            epoch_loss.append(sum(batch_loss)/len(batch_loss))
 
-        remember_rate = 1 - self.args.forget_rate
-        num_remember = int(remember_rate * len(loss_idx_lst))
+        return g_net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+        
+#         loss_idx_lst = []
+#         for batch_idx, (images, labels, indexes) in enumerate(self.finetuning_train):
+#             images, labels = images.to(self.args.device), labels.to(self.args.device)
+#             log_probs = l_net(images)
+#             loss = self.loss_func_no_re(log_probs, labels)
 
-        filtered_train_data = []
-        dataset = self.finetuning_train.dataset
+#             for l, i in zip(loss, indexes):
+#                 loss_idx_lst.append([l.item(), i.item()])
 
-        for l, i in loss_idx_lst[:num_remember]:
-            filtered_train_data.append((dataset[i][0], dataset[i][1]))
+#         loss_idx_lst.sort(key=lambda x: x[0])
 
-        self.ldr_train = DataLoader(
-            filtered_train_data,
-            batch_size=int(self.args.local_bs * remember_rate),
-            shuffle=True,
-        )
-        return self.train_single_model(g_net)
+#         remember_rate = 1 - self.args.forget_rate
+#         num_remember = int(remember_rate * len(loss_idx_lst))
+
+#         filtered_train_data = []
+#         dataset = self.finetuning_train.dataset
+
+#         for l, i in loss_idx_lst[:num_remember]:
+#             filtered_train_data.append((dataset[i][0], dataset[i][1]))
+
+#         self.ldr_train = DataLoader(
+#             filtered_train_data,
+#             batch_size=int(self.args.local_bs * remember_rate),
+#             shuffle=True,
+#         )
+#         return self.train_single_model(g_net)
 
 
 class LocalUpdateFinetuning(BaseLocalUpdate):

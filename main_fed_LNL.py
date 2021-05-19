@@ -135,51 +135,43 @@ if __name__ == '__main__':
     ##############################
     # Add label noise to data
     ##############################
-    if args.noise_type != "clean" and args.group_noise_rate:
-        if sum(args.noise_group_num) != args.num_users:
-            exit('Error: sum of the number of noise group have to be equal the number of users')
+    if sum(args.noise_group_num) != args.num_users:
+        exit('Error: sum of the number of noise group have to be equal the number of users')
+
+    if not len(args.noise_group_num) == len(args.group_noise_rate) == len(args.noise_type_lst):
+        exit('Error: The noise input is invalid.')
+
+    user_noise_rates = []
+
+    if args.experiment == "case1":
+        for num_users_in_group, group_noise_rate, noise_type in zip(args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
+            user_noise_rates += [(noise_type, group_noise_rate)] * num_users_in_group
+    elif args.experiment == "case2":
+        for num_users_in_group, group_noise_rate, noise_type in zip(args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
+            for user in range(num_users_in_group):
+                noise_rate = group_noise_rate / (num_users_in_group  - 1) * user
+                user_noise_rates.append((noise_type, noise_rate))
+
+    for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_rates):
+        if user_noise_type != "clean":
+            data_indices = list(copy.deepcopy(dict_users[user]))
+
+            # for reproduction
+            random.seed(args.seed)
+            random.shuffle(data_indices)
+
+            noise_index = int(len(data_indices) * user_noise_rate)
+
+            for d_idx in data_indices[:noise_index]:
+                true_label = dataset_train.train_labels[d_idx]
+                noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=user_noise_type)
+                dataset_train.train_labels[d_idx] = noisy_label
         
+    for user, user_noise_rate in enumerate(user_noise_rates):
+        print("USER {} - {}".format(user, user_noise_rate))
         
-        user_noise_rates = []
+    user_noise_rates = [noise_rate for (noise_type, noise_rate) in user_noise_rates]
         
-        if args.experiment in ["case1", "case2"]:
-            # noise rate for each user
-            for num_users_in_group, group_noise_rate in zip(args.noise_group_num, args.group_noise_rate):
-                user_noise_rates += [group_noise_rate] * num_users_in_group
-
-            for user, user_noise_rate in enumerate(user_noise_rates):
-                data_indices = list(copy.deepcopy(dict_users[user]))
-
-                # for reproduction
-                random.seed(args.seed)
-                random.shuffle(data_indices)
-
-                noise_index = int(len(data_indices) * user_noise_rate)
-
-                for d_idx in data_indices[:noise_index]:
-                    true_label = dataset_train.train_labels[d_idx]
-                    noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
-                    dataset_train.train_labels[d_idx] = noisy_label
-        elif args.experiment in ["case3"]:
-            for user in range(args.num_users):
-                data_indices = list(copy.deepcopy(dict_users[user]))
-                
-                random.seed(args.seed)
-                random.shuffle(data_indices)
-                noise_rate = 0.6 / (args.num_users  - 1) * user
-                user_noise_rates.append(noise_rate)
-                
-                noise_index = int(noise_rate * 500)
-                
-                for d_idx in data_indices[:noise_index]:
-                    true_label = dataset_train.train_labels[d_idx]
-                    noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=args.noise_type)
-                    dataset_train.train_labels[d_idx] = noisy_label
-                
-    else:
-        user_noise_rates = [0] * args.num_users
-    print(user_noise_rates)
-
     # for logging purposes
     log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
     log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)

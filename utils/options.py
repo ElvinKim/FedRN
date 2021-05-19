@@ -58,10 +58,10 @@ def args_parser():
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
     
     # noise label arguments
-    parser.add_argument('--noise_type', type=str, help='[pairflip, symmetric]', default='pairflip')
+    parser.add_argument('--noise_type_lst', nargs='+', help='[pairflip, symmetric]', default=['symmetric'])
     parser.add_argument('--noise_group_num', nargs='+', default=[100], type=int)
     parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float)
-    parser.add_argument('--experiment', type=str, help='[case1, case2, case3]', default='case1')
+    parser.add_argument('--experiment', type=str, help='[case1, case2]', default='case1')
 
     # selfie arguments
     parser.add_argument('--queue_size', type=int, default=15, help='size of history queue')
