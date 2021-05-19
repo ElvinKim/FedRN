@@ -197,13 +197,13 @@ if __name__ == '__main__':
 
     forget_rate_schedule = []
     if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
-        if args.experiment in ['case1', 'case2']:
+        if args.experiment == "case1"
             forget_rate = args.forget_rate
             exponent = 1
             num_gradual = int(args.epochs * 0.2)
             forget_rate_schedule = np.ones(args.epochs) * forget_rate
             forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
-        elif args.experiment in ['case3']:
+        elif args.experiment == 'case2':
             forget_rate = args.forget_rate
             exponent = 1
             forget_rate_schedule = np.linspace(0, forget_rate ** exponent, args.epochs)
