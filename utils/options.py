@@ -63,17 +63,21 @@ def args_parser():
     parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float)
     parser.add_argument('--experiment', type=str, help='[case1, case2]', default='case1')
 
-    # selfie arguments
+    # selfie / joint optimization arguments
     parser.add_argument('--queue_size', type=int, default=15, help='size of history queue')
-    parser.add_argument('--warmup_epochs', type=int, default=25, help='number of warmup epochs')
+    parser.add_argument('--warmup_epochs', type=int, default=100, help='number of warmup epochs')
+    # selfie arguments
     parser.add_argument('--uncertainty_threshold', type=float, default=0.05, help='uncertainty threshold')
+    # joint optimization arguments
+    parser.add_argument('--alpha', type=float, default=1.2, help="alpha for joint optimization")
+    parser.add_argument('--beta', type=float, default=0.8, help="beta for joint optimization")
 
     # co-teaching arguments
     parser.add_argument('--num_gradual', type=int, help='T_k', default=10)
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
     
     # MixMatch arguments
-    parser.add_argument('--mm_alpha', default=0.75, type=float)
+    parser.add_argument('--mm_alpha', default=4, type=float)
     parser.add_argument('--lambda_u', default=25, type=float, help='weight for unsupervised loss')
     parser.add_argument('--T', default=0.5, type=float)
     parser.add_argument('--p_threshold', default=0.5, type=float)
@@ -83,13 +87,6 @@ def args_parser():
 
     # save arguments
     parser.add_argument('--save_dir', type=str, default=None, help="name of save directory")
-    
-    # joint optimization arguments
-    parser.add_argument('--alpha', type=float, default=1.2, help="alpha for joint optimization")
-    parser.add_argument('--beta', type=float, default=0.8, help="beta for joint optimization")
-    parser.add_argument('--begin_update_epoch', type=int, default=35, help='When to begin updating labels')
-    parser.add_argument('--stop_update_epoch', type=int, default=400, help='When to stop updating labels')
-    parser.add_argument('--K', type=int, help='the number of history predictions', default=3)
 
     # finetuning arguments
     parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")

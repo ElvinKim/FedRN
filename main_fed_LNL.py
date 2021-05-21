@@ -22,15 +22,15 @@ from models.Fed import LocalModelWeights
 from models.test import test_img
 import nsml
 
-
 if __name__ == '__main__':
     # parse args
     args = args_parser()
-    args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
+    args.device = torch.device(
+        'cuda:{}'.format(args.gpu)
+        if torch.cuda.is_available() and args.gpu != -1
+        else 'cpu',
+    )
     args.schedule = [int(x) for x in args.schedule]
-    args.warm_up = int(args.epochs * 0.2) \
-        if args.method in ['dividemix', 'gmix'] \
-        else 0
     args.send_2_models = args.method in ['coteaching', 'coteaching+', 'dividemix', ]
 
     # Reproducing "Robust Fl with NLs"
@@ -144,12 +144,15 @@ if __name__ == '__main__':
     user_noise_rates = []
 
     if args.experiment == "case1":
-        for num_users_in_group, group_noise_rate, noise_type in zip(args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
+        for num_users_in_group, group_noise_rate, noise_type in zip(
+                args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
             user_noise_rates += [(noise_type, group_noise_rate)] * num_users_in_group
+
     elif args.experiment == "case2":
-        for num_users_in_group, group_noise_rate, noise_type in zip(args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
+        for num_users_in_group, group_noise_rate, noise_type in zip(
+                args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
             for user in range(num_users_in_group):
-                noise_rate = group_noise_rate / (num_users_in_group  - 1) * user
+                noise_rate = group_noise_rate / (num_users_in_group - 1) * user
                 user_noise_rates.append((noise_type, noise_rate))
 
     for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_rates):
@@ -280,7 +283,7 @@ if __name__ == '__main__':
             train_acc2, train_loss2 = test_img(net_glob2, log_train_data_loader, args)
             test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
             results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
-                            test_acc2=test_acc2, test_loss2=test_loss2,)
+                            test_acc2=test_acc2, test_loss2=test_loss2, )
             results = {**results, **results2}
 
         print('Round {:3d}'.format(epoch))

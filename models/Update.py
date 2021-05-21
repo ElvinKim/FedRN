@@ -395,7 +395,7 @@ class LocalUpdateSELFIE(BaseLocalUpdate):
             outputs=log_probs.cpu().detach().numpy(),
         )
 
-        if self.total_epochs >= self.warmup:
+        if self.args.g_epoch >= self.args.warmup_epochs:
             # correct labels, remove noisy data
             images, labels = self.corrector.patch_clean_with_corrected_sample_batch(
                 ids=ids,
@@ -420,9 +420,8 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
             idxs=idxs,
             real_idx_return=True
         )
-        self.stop_update_epoch = args.stop_update_epoch
         self.corrector = JointOptimCorrector(
-            queue_size=args.K,
+            queue_size=args.queue_size,
             num_classes=args.num_classes,
             data_size=len(idxs),
         )
@@ -438,14 +437,12 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
         logits = net(images)
         probs = F.softmax(logits, dim=1)
 
-        is_loss_cross_entropy = self.total_epochs >= self.stop_update_epoch
-        loss = self.joint_optim_loss(logits, probs, soft_labels, is_cross_entropy=is_loss_cross_entropy)
-
+        loss = self.joint_optim_loss(logits, probs, soft_labels)
         self.corrector.update_probability_history(ids, probs.cpu().detach())
         return loss
 
     def on_epoch_end(self):
-        if self.args.begin_update_epoch <= self.total_epochs < self.args.stop_update_epoch:
+        if self.args.g_epoch >= self.args.warmup_epochs:
             self.corrector.update_labels()
 
     def joint_optim_loss(self, logits, probs, soft_targets, is_cross_entropy=False):
@@ -455,7 +452,7 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
         else:
             # We introduce a prior probability distribution p,
             # which is a distribution of classes among all training data.
-            p = torch.ones(self.args.num_classes).cuda() / self.args.num_classes
+            p = torch.ones(self.args.num_classes, device=self.args.device) / self.args.num_classes
 
             avg_probs = torch.mean(probs, dim=0)
 
@@ -831,7 +828,7 @@ class LocalUpdateGMix(BaseLocalUpdate):
         self.semiloss = SemiLoss()
 
     def train(self, net, net2=None):
-        if self.args.g_epoch <= self.args.warm_up:
+        if self.args.g_epoch <= self.args.warmup_epochs:
             return self.train_single_model(net)
         else:
             return self.train_2_phase(net)
@@ -945,7 +942,7 @@ class LocalUpdateGMix(BaseLocalUpdate):
                     outputs_u=mixed_target[batch_size * 2:],
                     lambda_u=self.args.lambda_u,
                     epoch=self.args.g_epoch + batch_idx / self.num_iter,
-                    warm_up=self.args.warm_up,
+                    warm_up=self.args.warmup_epochs,
                 )
                 # regularization
                 prior = torch.ones(self.args.num_classes, device=self.args.device) / self.args.num_classes
@@ -987,7 +984,7 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
         )
 
     def train(self, net, net2=None):
-        if self.args.g_epoch <= self.args.warm_up:
+        if self.args.g_epoch <= self.args.warmup_epochs:
             return self.train_multiple_models(net, net2)
         else:
             return self.train_2_phase(net, net2)
@@ -1003,7 +1000,7 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             label_idx=label_idx2,
             prob_dict=prob_dict2,
             unlabel_idx=unlabel_idx2,
-            warm_up=self.args.warm_up,
+            warm_up=self.args.warmup_epochs,
             epoch=self.args.g_epoch,
         )
 
@@ -1014,7 +1011,7 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             label_idx=label_idx1,
             prob_dict=prob_dict1,
             unlabel_idx=unlabel_idx1,
-            warm_up=self.args.warm_up,
+            warm_up=self.args.warmup_epochs,
             epoch=self.args.g_epoch,
         )
 
@@ -1037,19 +1034,11 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             batch_size=self.args.local_bs,
             shuffle=True,
         )
-        labeled_train_iter = iter(labeled_trainloader)
         unlabeled_train_iter = iter(unlabeled_trainloader)
-
-        num_iter = int(len(self.idxs) / self.args.local_bs)
+        num_iter = len(labeled_trainloader)
 
         batch_loss = []
-        for batch_idx in range(num_iter):
-            try:
-                inputs_x, inputs_x2, labels_x, w_x = labeled_train_iter.next()
-            except:
-                labeled_train_iter = iter(labeled_trainloader)
-                inputs_x, inputs_x2, labels_x, w_x = labeled_train_iter.next()
-
+        for batch_idx, (inputs_x, inputs_x2, labels_x, w_x) in enumerate(labeled_trainloader):
             try:
                 inputs_u, inputs_u2 = unlabeled_train_iter.next()
             except:
@@ -1198,7 +1187,7 @@ class LocalUpdateHS(BaseLocalUpdate):
 
         if self.batch_idx == 0:
             for prob, index in zip(log_probs, indexes):
-                self.dataset.prediction[index][self.count % self.args.K] = F.softmax(prob.cpu()).detach().numpy()
+                self.dataset.prediction[index][self.count % self.args.queue_size] = F.softmax(prob.cpu()).detach().numpy()
         return loss
 
     def train_2_phase(self, net):
@@ -1217,7 +1206,7 @@ class LocalUpdateHS(BaseLocalUpdate):
             loss = self.loss_func_no_red(log_probs, labels)
 
             for l, i, prob in zip(loss, indexes, log_probs):
-                self.dataset.prediction[i][self.count % self.args.K] = prob.cpu().detach().numpy()
+                self.dataset.prediction[i][self.count % self.args.queue_size] = prob.cpu().detach().numpy()
                 loss_idx_lst.append([l.item(), i.item()])
 
         loss_idx_lst.sort(key=lambda x: x[0])
