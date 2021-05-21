@@ -192,9 +192,6 @@ if __name__ == '__main__':
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
     
-    if args.method in ['lgfinetune', 'lgteaching']:
-        net_local_lst = []
-
     ##############################
     # Training
     ##############################
