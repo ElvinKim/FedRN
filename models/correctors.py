@@ -166,8 +166,9 @@ class SelfieCorrector:
         # 2. get corrected samples
         corrected_batch = self.correct_samples(ids)
         # 3. merging
+        selected_ids = set(clean_batch) | set(corrected_batch)
         X, y = self.correct_and_select_certain_samples(ids, X, y, clean_batch, corrected_batch)
-        return X, y
+        return X, y, selected_ids
 
     def clear_predictions(self):
         self.prediction_history.clear()

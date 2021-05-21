@@ -11,7 +11,7 @@ import torchvision
 from torchvision import transforms
 import torch
 
-from utils import CIFAR10, MNIST, Logger
+from utils import CIFAR10, MNIST, Logger, NoiseLogger
 from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
 from utils.utils import noisify_label
@@ -155,6 +155,7 @@ if __name__ == '__main__':
                 noise_rate = group_noise_rate / (num_users_in_group - 1) * user
                 user_noise_rates.append((noise_type, noise_rate))
 
+    user_noisy_data = {user: [] for user in dict_users}
     for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_rates):
         if user_noise_type != "clean":
             data_indices = list(copy.deepcopy(dict_users[user]))
@@ -169,7 +170,8 @@ if __name__ == '__main__':
                 true_label = dataset_train.train_labels[d_idx]
                 noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=user_noise_type)
                 dataset_train.train_labels[d_idx] = noisy_label
-        
+                user_noisy_data[user].append(d_idx)
+
     for user, user_noise_rate in enumerate(user_noise_rates):
         print("USER {} - {}".format(user, user_noise_rate))
         
@@ -197,6 +199,7 @@ if __name__ == '__main__':
     # Training
     ##############################
     logger = Logger(args, args.send_2_models)
+    noise_logger = NoiseLogger(args, user_noisy_data, dict_users)
 
     forget_rate_schedule = []
     if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
@@ -228,6 +231,7 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=user_noise_rates,
         net_glob=net_glob,
+        noise_logger=noise_logger,
     )
 
     for epoch in range(args.epochs):
@@ -303,3 +307,4 @@ if __name__ == '__main__':
             )
 
     logger.close()
+    noise_logger.close()
