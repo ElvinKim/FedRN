@@ -12,7 +12,7 @@ class Logger:
         else:
             result_dir = './save/{}/'.format(args.save_dir)
 
-        result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
+        result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
             args.dataset,
             args.method,
             args.model,
@@ -23,10 +23,11 @@ class Logger:
             args.iid,
             args.lr,
             args.momentum,
-            args.noise_type,
+            args.noise_type_lst,
             args.noise_group_num,
             args.group_noise_rate,
             args.partition,
+            args.experiment
         )
 
         if not os.path.exists(result_dir):
