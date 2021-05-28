@@ -31,13 +31,24 @@ if __name__ == '__main__':
         if args.method in ['dividemix', 'gmix'] \
         else 0
     args.send_2_models = args.method in ['coteaching', 'coteaching+', 'dividemix', ]
-
+    
+    
     # Reproducing "Robust Fl with NLs"
     if args.reproduce:
-        args.local_bs = 50
-        args.lr = 0.15
-        args.lr_decay = 1
         args.weight_decay = 0.0001
+        args.lr = 0.25
+        args.model = 'cnn9'
+    
+    
+    # determine feature dimension
+    if args.model == 'cnn9':
+        args.feature_dim = 128
+    elif args.model == 'cnn4conv':
+        args.feature_dim = 256
+    else:
+        # Otherwise, need to check
+        args.feature_dim = 0
+
 
     for x in vars(args).items():
         print(x)
@@ -199,7 +210,7 @@ if __name__ == '__main__':
         local_weights2 = LocalModelWeights(net_glob=net_glob2, **fed_args)
 
         
-    f_G = torch.zeros(10, 128)
+    f_G = torch.randn(args.num_classes, args.feature_dim, device=args.device)
     
     # Initialize local update objects
     local_update_objects = get_local_update_objects(
@@ -208,7 +219,6 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=user_noise_rates,
         net_glob=net_glob,
-        f_G=f_G
     )
 
     for epoch in range(args.epochs):
@@ -243,8 +253,9 @@ if __name__ == '__main__':
 
             else:
                 if args.method == 'RFL':
-                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device))
-                    f_locals.append(copy.deepcopy(f_k))
+                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device), f_G)
+                    f_locals.append(f_k)
+
                 else:
                     w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
                 local_weights.update(idx, w)
@@ -255,15 +266,19 @@ if __name__ == '__main__':
         local_weights.init()
         
         if args.method == 'RFL':
-            sim = torch.nn.CosineSimilarity()
+            sim = torch.nn.CosineSimilarity(dim=1) 
             tmp = 0
             w_sum = 0
             for i in f_locals:
-                w_sum += cos(f_G, i)
-                tmp += cos(f_G, i) * i
+                sim_weight = sim(f_G, i).reshape(args.num_classes, 1)
+                w_sum += sim_weight
+                tmp += sim_weight * i
+            for i in range(len(w_sum)):
+                if w_sum[i] == 0:
+                    w_sum[i] = 1
             f_G = torch.div(tmp, w_sum)
         
-
+        #print('f_G {}'.format(f_G))
         # for logging purposes
         train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
         test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)

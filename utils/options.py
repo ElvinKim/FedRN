@@ -35,7 +35,7 @@ def args_parser():
                         help="federated learning method")
 
     # model arguments
-    parser.add_argument('--model', type=str, default='cnn4conv', choices=['mlp', 'cnn', 'mobile', 'cnn4conv'],
+    parser.add_argument('--model', type=str, default='cnn4conv', choices=['mlp', 'cnn', 'mobile', 'cnn4conv', 'cnn9'],
                         help='model name')
     parser.add_argument('--kernel_num', type=int, default=9, help='number of each kind of kernel')
     parser.add_argument('--kernel_sizes', type=str, default='3,4,5',
@@ -94,7 +94,8 @@ def args_parser():
     parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")
     
     # RFL arguments
-    parser.add_argument('--T_pl', type=int, help = 'T_pl', default=10)
+    parser.add_argument('--T_pl', type=int, help = 'T_pl', default=150)
+    parser.add_argument('--feature_dim', type=int, help = 'feature dimension', default=256)
     parser.add_argument('--lambda_cen', type=float, help = 'lambda_cen', default=1.0)
     parser.add_argument('--lambda_e', type=float, help = 'lambda_e', default=0.8)
     parser.add_argument('--feature_return', action='store_true', help = 'feature extraction')

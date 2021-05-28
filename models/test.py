@@ -18,7 +18,10 @@ def test_img(net_g, data_loader, args):
     for idx, (data, target) in enumerate(data_loader):
         if args.gpu != -1:
             data, target = data.to(args.device), target.to(args.device)
-        log_probs = net_g(data)
+        if args.feature_return:
+            log_probs, _ = net_g(data)
+        else:
+            log_probs = net_g(data)
         # sum up batch loss
         test_loss += F.cross_entropy(log_probs, target, reduction='sum').item()
         # get the index of the max log-probability
