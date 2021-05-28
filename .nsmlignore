@@ -1,4 +1,6 @@
+backup/
 save/
+save2/
 save_backup/
 save_backup2/
 *.ipynb
@@ -7,3 +9,4 @@ save_backup2/
 *.txt
 .idea
 nsml.py
+*_backup.py
