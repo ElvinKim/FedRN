@@ -1240,7 +1240,7 @@ class LocalUpdateHS(BaseLocalUpdate):
 
     def train(self, net, net2=None):
         self.count += 1
-        if self.args.g_epoch <= self.args.warmup:
+        if self.args.g_epoch <= self.args.warmup_epochs:
             return self.train_single_model(net)
         else:
             return self.train_2_phase(net)
