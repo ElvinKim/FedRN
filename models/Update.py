@@ -370,11 +370,13 @@ class BaseLocalUpdate:
 
     
 class LocalUpdateRFL(BaseLocalUpdate):
-    def __init__(self, args, dataset=None, idxs=None, idx_return=True):
+    def __init__(self, args, dataset=None, user_idx=None, idxs=None, noise_logger=None):
         super().__init__(
             args=args,
             dataset=dataset,
+            user_idx=user_idx,
             idxs=idxs,
+            noise_logger=noise_logger
         )
         self.pseudo_labels = torch.zeros(len(self.dataset), dtype=torch.long, device=self.args.device)
         self.sim = torch.nn.CosineSimilarity(dim=1) 
@@ -496,6 +498,7 @@ class LocalUpdateRFL(BaseLocalUpdate):
                     if self.args.g_epoch < self.args.T_pl:
                         for i in small_loss_idxs:    
                             self.pseudo_labels[idx[i]] = labels[i]
+                            
                     
                     loss = self.RFLloss(logit, labels, idx, feature, f_k, self.pseudo_labels, mask, small_loss_idxs, self.args.lambda_cen, self.args.lambda_e)
 
