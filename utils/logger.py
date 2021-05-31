@@ -1,5 +1,6 @@
 import os
 import csv
+import numpy as np
 import nsml
 
 
@@ -115,6 +116,7 @@ class NoiseLogger:
         # # of truly detected noisy labels / total # of detected noisy labels
 
         if self.clean_ids:
+            self.clean_ids = np.array(self.clean_ids)
             pred_noisy_data = set(self.user_total_data[user_id]) - set(self.clean_ids)
         else:
             pred_noisy_data = []

@@ -22,6 +22,7 @@ from models.Fed import LocalModelWeights
 from models.test import test_img
 import nsml
 
+
 if __name__ == '__main__':
     # parse args
     args = args_parser()
@@ -203,7 +204,7 @@ if __name__ == '__main__':
         if args.experiment == "case1":
             forget_rate = args.forget_rate
             exponent = 1
-            num_gradual = int(args.epochs * 0.2)
+            num_gradual = args.warmup_epochs
             forget_rate_schedule = np.ones(args.epochs) * forget_rate
             forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
         elif args.experiment == 'case2':
