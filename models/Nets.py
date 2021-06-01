@@ -159,7 +159,8 @@ class CNN(nn.Module):
             return logit, self.extract_features(x)
         return logit
     
-    def extract_features(self, h):
+    def extract_features(self, x):
+        h = x
         h = self.c1(h)
         h = F.leaky_relu(self.bn1(h), negative_slope=0.01)
         h = self.c2(h)

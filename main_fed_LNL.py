@@ -35,7 +35,7 @@ if __name__ == '__main__':
     
     
     # Reproducing "Robust Fl with NLs"
-    if args.reproduce:
+    if args.reproduce and args.method == 'RFL':
         args.weight_decay = 0.0001
         args.lr = 0.25
         args.model = 'cnn9'
@@ -301,6 +301,7 @@ if __name__ == '__main__':
             for i in range(len(w_sum)):
                 if w_sum[i] == 0:
                     w_sum[i] = 1
+           
             f_G = torch.div(tmp, w_sum)
         
         #print('f_G {}'.format(f_G))

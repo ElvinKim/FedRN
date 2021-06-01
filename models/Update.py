@@ -389,22 +389,47 @@ class LocalUpdateRFL(BaseLocalUpdate):
         )
         self.ldr_train_tmp = DataLoader(DatasetSplitRFL(dataset, idxs), batch_size=1, shuffle=True)
             
-    def RFLloss(self, logit, labels, idx, feature, f_k, pseudo_labels, mask, small_loss_idxs, lambda_cen, lambda_e):
-        mse = torch.nn.MSELoss(reduction='none')
-        ce = torch.nn.CrossEntropyLoss(reduction='none')
-        sm = torch.nn.Softmax(dim=1)
-        lsm = torch.nn.LogSoftmax(dim=1)
+    def RFLloss(self, logit, labels, idx, feature, f_k, pseudo_labels, mask, small_loss_idxs, lambda_cen, lambda_e, new_labels):
+        mse = torch.nn.MSELoss(reduce=False)
+        
+        #ce = torch.nn.CrossEntropyLoss(reduction='none')
+        ce = torch.nn.CrossEntropyLoss()
+        sm = torch.nn.Softmax()
+        #lsm = torch.nn.LogSoftmax(dim=1)
+        lsm = torch.nn.LogSoftmax()
+       
         #ones = torch.ones(len(small_loss_idxs)).to(self.args.device)
         #print(idx[small_loss_idxs])
-
-        L_c = torch.sum(mask[small_loss_idxs] * ce(logit[small_loss_idxs], labels[small_loss_idxs]) + (1-mask[small_loss_idxs]) * ce(logit[small_loss_idxs], pseudo_labels[idx[small_loss_idxs]]))
-        L_cen = torch.sum(mask[small_loss_idxs].reshape(len(small_loss_idxs),1) * mse(feature[small_loss_idxs], f_k[labels[small_loss_idxs]]))
-        L_e = -torch.sum(sm(logit[small_loss_idxs]) * lsm(logit[small_loss_idxs]))
-        #print('L_c {}'.format(L_c))
-        #print('L_cen {}'.format(L_cen))
-        #print('L_e {}'.format(L_e))
-        #print('================')
+        '''
+        new_labels = mask[small_loss_idxs] * labels[small_loss_idxs] + (1-mask[small_loss_idxs]) * pseudo_labels[idx[small_loss_idxs]]
+        new_labels = new_labels.type(torch.LongTensor).to(self.args.device)
+        #print(labels)
+        '''
+        L_c = ce(logit[small_loss_idxs], new_labels)
+        #L_c = ce(logit[small_loss_idxs], labels[small_loss_idxs])
+        #L_c = torch.sum(mask[small_loss_idxs] * ce(logit[small_loss_idxs], labels[small_loss_idxs]) + (1-mask[small_loss_idxs]) * ce(logit[small_loss_idxs], pseudo_labels[idx[small_loss_idxs]]))
+        #L_cen = torch.sum(mask[small_loss_idxs].reshape(len(small_loss_idxs),1) * torch.sum(mse(feature[small_loss_idxs], f_k[labels[small_loss_idxs]]), 1))
+        L_cen = torch.sum(mask[small_loss_idxs] * torch.sum(mse(feature[small_loss_idxs], f_k[labels[small_loss_idxs]]), 1))
+        L_e = -torch.mean(torch.sum(sm(logit[small_loss_idxs]) * lsm(logit[small_loss_idxs]), 1))
+        '''
+        print(torch.max(sm(logit[small_loss_idxs]), 1)[0])
+        print(feature[small_loss_idxs].shape)
+        print(feature[small_loss_idxs])
+        print(f_k[labels[small_loss_idxs]].shape)
+        print(f_k[labels[small_loss_idxs]])
+        print(mse(feature[small_loss_idxs], f_k[labels[small_loss_idxs]]).shape)
+        print(mse(feature[small_loss_idxs], f_k[labels[small_loss_idxs]]))
+        print(torch.sum(mse(feature[small_loss_idxs], f_k[labels[small_loss_idxs]]), 1))
+        '''
+        '''
+        print('L_c {}'.format(L_c))
+        print('L_cen {}'.format(L_cen))
+        print('L_e {}'.format(L_e))
+        print('================')
+        '''
+        
         if self.args.g_epoch < 20:
+            #lambda_cen = 0
             lambda_cen = 0.05 * (self.args.g_epoch+1)
         return L_c + lambda_cen * L_cen + lambda_e * L_e
              
@@ -471,11 +496,12 @@ class LocalUpdateRFL(BaseLocalUpdate):
                     images, labels, idx = batch
                     images, labels = images.to(self.args.device), labels.to(self.args.device)
                     logit, feature = net(images)
+                    
                     feature = feature.detach()
                     f_k = f_k.to(self.args.device)
                     # batch 안에서의 index 순서
                     small_loss_idxs = self.get_small_loss_samples(logit, labels, self.args.forget_rate)
-
+                    
                     y_k_tilde = torch.zeros(self.args.local_bs, device=self.args.device)
                     for i in small_loss_idxs:
                         #print(self.sim(f_k, torch.reshape(feature[i], (1, self.args.feature_dim)).clone()))
@@ -486,6 +512,7 @@ class LocalUpdateRFL(BaseLocalUpdate):
                         if y_k_tilde[i] == labels[i]:
                             mask[i] = 1
                     
+                    '''
                     if iter == 0 and batch_idx == 0:
                         print('==================')
                         print(y_k_tilde[small_loss_idxs])
@@ -493,15 +520,19 @@ class LocalUpdateRFL(BaseLocalUpdate):
                         print(labels[small_loss_idxs])
                         print(mask[small_loss_idxs])
                         print('==================')
+                    '''
                     
                     #print(idx)
                     if self.args.g_epoch < self.args.T_pl:
                         for i in small_loss_idxs:    
                             self.pseudo_labels[idx[i]] = labels[i]
                             
+                    new_labels = mask[small_loss_idxs]*labels[small_loss_idxs] + (1-mask[small_loss_idxs])*self.pseudo_labels[idx[small_loss_idxs]]
+                    new_labels = new_labels.type(torch.LongTensor).to(self.args.device)
                     
-                    loss = self.RFLloss(logit, labels, idx, feature, f_k, self.pseudo_labels, mask, small_loss_idxs, self.args.lambda_cen, self.args.lambda_e)
-
+                    #print(new_labels)
+                    loss = self.RFLloss(logit, labels, idx, feature, f_k, self.pseudo_labels, mask, small_loss_idxs, self.args.lambda_cen, self.args.lambda_e, new_labels)
+                    
                     #labels, feature = labels.to(self.args.device), feature.to(self.args.device)
                     # weight update by minimizing loss: L_total = L_c + lambda_cen * L_cen + lambda_e * L_e
                     #loss.backward(retain_graph=True)
