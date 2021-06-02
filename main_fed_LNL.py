@@ -8,10 +8,10 @@ import numpy as np
 import random
 
 import torchvision
-from torchvision import datasets, transforms
+from torchvision import transforms
 import torch
 
-from utils import CIFAR10Basic, MNIST, Logger
+from utils import CIFAR10, MNIST, Logger, NoiseLogger
 from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
 from utils.utils import noisify_label
@@ -26,11 +26,12 @@ import nsml
 if __name__ == '__main__':
     # parse args
     args = args_parser()
-    args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
+    args.device = torch.device(
+        'cuda:{}'.format(args.gpu)
+        if torch.cuda.is_available() and args.gpu != -1
+        else 'cpu',
+    )
     args.schedule = [int(x) for x in args.schedule]
-    args.warm_up = int(args.epochs * 0.2) \
-        if args.method in ['dividemix', 'gmix'] \
-        else 0
     args.send_2_models = args.method in ['coteaching', 'coteaching+', 'dividemix', ]
 
     # Reproducing "Robust Fl with NLs"
@@ -99,15 +100,15 @@ if __name__ == '__main__':
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])],
         )
-        dataset_train = CIFAR10Basic(
+        dataset_train = CIFAR10(
             root='./data/cifar',
-            download=True,
+            download=not nsml.IS_ON_NSML,
             train=True,
             transform=trans_cifar10_train,
         )
-        dataset_test = CIFAR10Basic(
+        dataset_test = CIFAR10(
             root='./data/cifar',
-            download=True,
+            download=not nsml.IS_ON_NSML,
             train=False,
             transform=trans_cifar10_val,
         )
@@ -144,14 +145,18 @@ if __name__ == '__main__':
     user_noise_rates = []
 
     if args.experiment == "case1":
-        for num_users_in_group, group_noise_rate, noise_type in zip(args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
+        for num_users_in_group, group_noise_rate, noise_type in zip(
+                args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
             user_noise_rates += [(noise_type, group_noise_rate)] * num_users_in_group
+
     elif args.experiment == "case2":
-        for num_users_in_group, group_noise_rate, noise_type in zip(args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
+        for num_users_in_group, group_noise_rate, noise_type in zip(
+                args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
             for user in range(num_users_in_group):
-                noise_rate = group_noise_rate / (num_users_in_group  - 1) * user
+                noise_rate = group_noise_rate / (num_users_in_group - 1) * user
                 user_noise_rates.append((noise_type, noise_rate))
 
+    user_noisy_data = {user: [] for user in dict_users}
     for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_rates):
         if user_noise_type != "clean":
             data_indices = list(copy.deepcopy(dict_users[user]))
@@ -166,7 +171,8 @@ if __name__ == '__main__':
                 true_label = dataset_train.train_labels[d_idx]
                 noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=user_noise_type)
                 dataset_train.train_labels[d_idx] = noisy_label
-        
+                user_noisy_data[user].append(d_idx)
+
     for user, user_noise_rate in enumerate(user_noise_rates):
         print("USER {} - {}".format(user, user_noise_rate))
         
@@ -187,23 +193,31 @@ if __name__ == '__main__':
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
     
+<<<<<<< HEAD
     net_local_lst = None
     if args.method in ['lgfinetune', 'lgteaching', 'lgcorrection']:
         net_local_lst = []
         for i in range(args.num_users):
             net_local_lst.append(net_glob.to(args.device))
 
+=======
+>>>>>>> a1f51a5d22ef800621910758bf0b9a15f11ff2db
     ##############################
     # Training
     ##############################
     logger = Logger(args, args.send_2_models)
+    noise_logger = NoiseLogger(args, user_noisy_data, dict_users)
 
     forget_rate_schedule = []
     if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
+<<<<<<< HEAD
         if args.forget_rate_schedule == "fix":
+=======
+        if args.experiment == "case1":
+>>>>>>> a1f51a5d22ef800621910758bf0b9a15f11ff2db
             forget_rate = args.forget_rate
             exponent = 1
-            num_gradual = int(args.epochs * 0.2)
+            num_gradual = args.warmup_epochs
             forget_rate_schedule = np.ones(args.epochs) * forget_rate
             forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
         elif args.forget_rate_schedule == "stairstep":
@@ -234,7 +248,11 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=user_noise_rates,
         net_glob=net_glob,
+<<<<<<< HEAD
         net_local_lst=net_local_lst
+=======
+        noise_logger=noise_logger,
+>>>>>>> a1f51a5d22ef800621910758bf0b9a15f11ff2db
     )
 
     for epoch in range(args.epochs):
@@ -290,7 +308,7 @@ if __name__ == '__main__':
             train_acc2, train_loss2 = test_img(net_glob2, log_train_data_loader, args)
             test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
             results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
-                            test_acc2=test_acc2, test_loss2=test_loss2,)
+                            test_acc2=test_acc2, test_loss2=test_loss2, )
             results = {**results, **results2}
 
         print('Round {:3d}'.format(epoch))
@@ -310,3 +328,4 @@ if __name__ == '__main__':
             )
 
     logger.close()
+    noise_logger.close()
