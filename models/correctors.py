@@ -12,6 +12,7 @@ class JointOptimCorrector:
         self.counts = np.zeros(data_size, dtype=int)
         # probability histories of samples
         self.probability_history = torch.zeros(data_size, queue_size, num_classes)
+        # self.prediction = np.zeros((self.args.epoch_update, len(self.train_data), 10) ,dtype=np.float32)
 
         # labels
         self.hard_labels = torch.zeros(data_size, dtype=torch.int64)
