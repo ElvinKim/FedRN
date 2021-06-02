@@ -131,7 +131,7 @@ class SemiLoss:
         return Lx + lamb * Lu
 
 
-def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, net_glob=None, noise_logger=None):
+def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, net_glob=None, net_local_lst=None, noise_logger=None):
     local_update_objects = []
     for idx, noise_rate in zip(range(args.num_users), noise_rates):
         local_update_args = dict(
@@ -1301,12 +1301,14 @@ class LocalUpdateHS(BaseLocalUpdate):
 
     
 class LocalUpdateLGCorrection(LocalUpdateSELFIE):
-    def __init__(self, args, dataset=None, idxs=None, noise_rate=0, l_net=None):
+    def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_rate=0, noise_logger=None, l_net=None):
         super().__init__(
             args=args,
+            user_idx=user_idx,
             dataset=dataset,
             idxs=idxs,
-            noise_rate=noise_rate
+            noise_rate=noise_rate,
+            noise_logger=noise_logger
         )
         
         self.l_net = l_net

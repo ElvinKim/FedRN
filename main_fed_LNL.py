@@ -193,15 +193,13 @@ if __name__ == '__main__':
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
     
-<<<<<<< HEAD
+    
     net_local_lst = None
     if args.method in ['lgfinetune', 'lgteaching', 'lgcorrection']:
         net_local_lst = []
         for i in range(args.num_users):
             net_local_lst.append(net_glob.to(args.device))
 
-=======
->>>>>>> a1f51a5d22ef800621910758bf0b9a15f11ff2db
     ##############################
     # Training
     ##############################
@@ -210,11 +208,7 @@ if __name__ == '__main__':
 
     forget_rate_schedule = []
     if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
-<<<<<<< HEAD
         if args.forget_rate_schedule == "fix":
-=======
-        if args.experiment == "case1":
->>>>>>> a1f51a5d22ef800621910758bf0b9a15f11ff2db
             forget_rate = args.forget_rate
             exponent = 1
             num_gradual = args.warmup_epochs
@@ -248,11 +242,8 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=user_noise_rates,
         net_glob=net_glob,
-<<<<<<< HEAD
-        net_local_lst=net_local_lst
-=======
-        noise_logger=noise_logger,
->>>>>>> a1f51a5d22ef800621910758bf0b9a15f11ff2db
+        net_local_lst=net_local_lst,
+        noise_logger=noise_logger
     )
 
     for epoch in range(args.epochs):
