@@ -178,6 +178,9 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
 
         elif args.method == 'fedprox':
             local_update_object = LocalUpdateFedProx(**local_update_args)
+            
+        elif args.method == 'lgcorrection':
+            local_update_object = LocalUpdateLGCorrection(noise_rate=noise_rate, l_net=net_local_lst[idx], **local_update_args)
 
         local_update_objects.append(local_update_object)
 
@@ -1238,3 +1241,83 @@ class LocalUpdateHS(BaseLocalUpdate):
 
     def criterion_softlabel(self, outputs, soft_targets):
         return self.loss_func(F.softmax(outputs), soft_targets)
+
+    
+class LocalUpdateLGCorrection(LocalUpdateSELFIE):
+    def __init__(self, args, dataset=None, idxs=None, noise_rate=0, l_net=None):
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            idxs=idxs,
+            noise_rate=noise_rate
+        )
+        
+        self.l_net = l_net
+        
+    def train(self, net):
+        g_net = copy.deepcopy(net)
+        
+        
+        optimizer = torch.optim.SGD(
+            net.parameters(),
+            lr=self.args.lr,
+            momentum=self.args.momentum,
+            weight_decay=self.args.weight_decay,
+        )
+        
+        epoch_loss = []
+        for epoch in range(self.args.local_ep):
+            self.epoch = epoch
+            batch_loss = []
+            for batch_idx, batch in enumerate(self.ldr_train):
+                self.batch_idx = batch_idx
+                
+                net.zero_grad()
+                images, labels, _, ids = batch
+                images = images.to(self.args.device)
+                labels = labels.to(self.args.device)
+                ids = ids.numpy()
+
+                log_probs = net(images)
+                loss_array = self.loss_func(log_probs, labels)
+
+                # update prediction history
+                self.corrector.update_prediction_history(
+                    ids=ids,
+                    outputs=log_probs.cpu().detach().numpy(),
+                )
+
+                if self.total_epochs >= self.warmup:
+                    # correct labels, remove noisy data
+                    images, labels = self.corrector.patch_clean_with_corrected_sample_batch(
+                        ids=ids,
+                        X=images,
+                        y=labels,
+                        loss_array=loss_array.cpu().detach().numpy(),
+                    )
+                    
+                    images = images.to(self.args.device)
+                    labels = labels.to(self.args.device)
+                    log_probs = net(images)
+                    loss_array = self.loss_func(log_probs, labels)
+
+                loss = loss_array.mean()  
+                fed_prox_reg = 0.0
+                
+                for l_param, g_param in zip(net.parameters(), g_net.parameters()):
+                    fed_prox_reg += (0.01 / 2 * torch.norm((l_param - g_param)) ** 2)
+                loss += fed_prox_reg
+                
+                loss.backward()
+                optimizer.step()
+
+                batch_loss.append(loss.item())
+                self.on_batch_end()
+
+            epoch_loss.append(sum(batch_loss) / len(batch_loss))
+            self.total_epochs += 1
+            self.on_epoch_end()
+
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+
+        

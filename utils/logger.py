@@ -12,7 +12,7 @@ class Logger:
         else:
             result_dir = './save/{}/'.format(args.save_dir)
 
-        result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
+        result_f = '{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
             args.dataset,
             args.method,
             args.model,
@@ -29,6 +29,9 @@ class Logger:
             args.partition,
             args.experiment
         )
+        
+        if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
+            result_f += "_FR[{}]_FRS[{}]".format(args.forget_rate, args.forget_rate_schedule)
 
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)

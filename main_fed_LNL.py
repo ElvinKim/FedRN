@@ -187,8 +187,11 @@ if __name__ == '__main__':
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
     
-    if args.method in ['lgfinetune', 'lgteaching']:
+    net_local_lst = None
+    if args.method in ['lgfinetune', 'lgteaching', 'lgcorrection']:
         net_local_lst = []
+        for i in range(args.num_users):
+            net_local_lst.append(net_glob.to(args.device))
 
     ##############################
     # Training
@@ -197,16 +200,21 @@ if __name__ == '__main__':
 
     forget_rate_schedule = []
     if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
-        if args.experiment == "case1"
+        if args.forget_rate_schedule == "fix":
             forget_rate = args.forget_rate
             exponent = 1
             num_gradual = int(args.epochs * 0.2)
             forget_rate_schedule = np.ones(args.epochs) * forget_rate
             forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
-        elif args.experiment == 'case2':
+        elif args.forget_rate_schedule == "stairstep":
             forget_rate = args.forget_rate
             exponent = 1
             forget_rate_schedule = np.linspace(0, forget_rate ** exponent, args.epochs)
+        else:
+            exit("Error: Forget rate schedule - fix for stairstep")
+    
+    print("Forget Rate Schedule")
+    print(forget_rate_schedule)
 
     # Initialize local model weights
     fed_args = dict(
@@ -214,6 +222,7 @@ if __name__ == '__main__':
         num_users=args.num_users,
         method=args.fed_method,
     )
+    
     local_weights = LocalModelWeights(net_glob=net_glob, **fed_args)
     if args.send_2_models:
         local_weights2 = LocalModelWeights(net_glob=net_glob2, **fed_args)
@@ -225,6 +234,7 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=user_noise_rates,
         net_glob=net_glob,
+        net_local_lst=net_local_lst
     )
 
     for epoch in range(args.epochs):

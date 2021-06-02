@@ -11,7 +11,7 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox',
+                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox', 'lgcorrection'
                                  ],
                         help='method name')
 
@@ -71,6 +71,7 @@ def args_parser():
     # co-teaching arguments
     parser.add_argument('--num_gradual', type=int, help='T_k', default=10)
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
+    parser.add_argument('--forget_rate_schedule', type=str, default="fix", help="forget rate schedule [fix, stairstep]")
     
     # MixMatch arguments
     parser.add_argument('--mm_alpha', default=0.75, type=float)
