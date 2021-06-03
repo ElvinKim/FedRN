@@ -58,9 +58,11 @@ def args_parser():
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
     
     # noise label arguments
-    parser.add_argument('--noise_type_lst', nargs='+', help='[pairflip, symmetric]', default=['symmetric'])
+    parser.add_argument('--noise_type_lst', nargs='+', default=['symmetric'], help='[pairflip, symmetric]')
     parser.add_argument('--noise_group_num', nargs='+', default=[100], type=int)
-    parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float)
+    parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float,
+                        help='Should be 2 noise rates for each group: min_group_noise_rate max_group_noise_rate but '
+                             'if there is only 1 group and 1 noise rate, same noise rate will be applied to all users')
     parser.add_argument('--experiment', type=str, help='[case1, case2]', default='case1')
 
     # selfie / joint optimization arguments
@@ -75,7 +77,8 @@ def args_parser():
     # co-teaching arguments
     parser.add_argument('--num_gradual', type=int, help='T_k', default=10)
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
-    parser.add_argument('--forget_rate_schedule', type=str, default="fix", help="forget rate schedule [fix, stairstep]")
+    parser.add_argument('--forget_rate_schedule', type=str, default="fix", choices=['fix', 'stairstep'],
+                        help="forget rate schedule [fix, stairstep]")
     
     # MixMatch arguments
     parser.add_argument('--mm_alpha', default=4, type=float)
