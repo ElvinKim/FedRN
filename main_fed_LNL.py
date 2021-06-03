@@ -139,25 +139,29 @@ if __name__ == '__main__':
     if sum(args.noise_group_num) != args.num_users:
         exit('Error: sum of the number of noise group have to be equal the number of users')
 
-    if not len(args.noise_group_num) == len(args.group_noise_rate) == len(args.noise_type_lst):
+    if len(args.group_noise_rate) == 1:
+        args.group_noise_rate = args.group_noise_rate * 2
+
+    if not len(args.noise_group_num) == len(args.group_noise_rate) and \
+            len(args.group_noise_rate) * 2 == len(args.noise_type_lst):
         exit('Error: The noise input is invalid.')
 
-    user_noise_rates = []
+    # group_noise_rate = [(min noise rate, max noise rate)]
+    args.group_noise_rate = [(args.group_noise_rate[i * 2], args.group_noise_rate[i * 2 + 1])
+                             for i in range(len(args.group_noise_rate) // 2)]
 
-    if args.experiment == "case1":
-        for num_users_in_group, group_noise_rate, noise_type in zip(
-                args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
-            user_noise_rates += [(noise_type, group_noise_rate)] * num_users_in_group
+    user_noise_type_rates = []
+    for num_users_in_group, noise_type, (min_group_noise_rate, max_group_noise_rate) in zip(
+            args.noise_group_num, args.noise_type_lst, args.group_noise_rate):
+        noise_types = [noise_type] * num_users_in_group
 
-    elif args.experiment == "case2":
-        for num_users_in_group, group_noise_rate, noise_type in zip(
-                args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
-            for user in range(num_users_in_group):
-                noise_rate = group_noise_rate / (num_users_in_group - 1) * user
-                user_noise_rates.append((noise_type, noise_rate))
+        step = (max_group_noise_rate - min_group_noise_rate) / num_users_in_group
+        noise_rates = np.array(range(num_users_in_group)) * step + min_group_noise_rate
+
+        user_noise_type_rates += [*zip(noise_types, noise_rates)]
 
     user_noisy_data = {user: [] for user in dict_users}
-    for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_rates):
+    for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_type_rates):
         if user_noise_type != "clean":
             data_indices = list(copy.deepcopy(dict_users[user]))
 
@@ -173,10 +177,8 @@ if __name__ == '__main__':
                 dataset_train.train_labels[d_idx] = noisy_label
                 user_noisy_data[user].append(d_idx)
 
-    for user, user_noise_rate in enumerate(user_noise_rates):
-        print("USER {} - {}".format(user, user_noise_rate))
-        
-    user_noise_rates = [noise_rate for (noise_type, noise_rate) in user_noise_rates]
+    for user, user_noise_type_rate in enumerate(user_noise_type_rates):
+        print("USER {} - {}".format(user, user_noise_type_rate))
         
     # for logging purposes
     log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
@@ -192,8 +194,7 @@ if __name__ == '__main__':
     if args.send_2_models:
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
-    
-    
+
     net_local_lst = None
     if args.method in ['lgfinetune', 'lgteaching', 'lgcorrection']:
         net_local_lst = []
@@ -209,20 +210,23 @@ if __name__ == '__main__':
     forget_rate_schedule = []
     if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
         if args.forget_rate_schedule == "fix":
-            forget_rate = args.forget_rate
-            exponent = 1
             num_gradual = args.warmup_epochs
-            forget_rate_schedule = np.ones(args.epochs) * forget_rate
-            forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
-        elif args.forget_rate_schedule == "stairstep":
-            forget_rate = args.forget_rate
-            exponent = 1
-            forget_rate_schedule = np.linspace(0, forget_rate ** exponent, args.epochs)
+
+        elif args.forget_rate_schedule == 'stairstep':
+            num_gradual = args.epochs
+
         else:
             exit("Error: Forget rate schedule - fix for stairstep")
-    
+
+        forget_rate = args.forget_rate
+        exponent = 1
+        forget_rate_schedule = np.ones(args.epochs) * forget_rate
+        forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
+
     print("Forget Rate Schedule")
     print(forget_rate_schedule)
+
+    pred_user_noise_rates = [args.forget_rate] * args.num_users
 
     # Initialize local model weights
     fed_args = dict(
@@ -240,7 +244,7 @@ if __name__ == '__main__':
         args=args,
         dataset_train=dataset_train,
         dict_users=dict_users,
-        noise_rates=user_noise_rates,
+        noise_rates=pred_user_noise_rates,
         net_glob=net_glob,
         net_local_lst=net_local_lst,
         noise_logger=noise_logger
