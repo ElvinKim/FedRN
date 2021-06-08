@@ -133,20 +133,21 @@ class NoiseLogger:
         self.clean_ids.extend(ids)
 
     def write(self, epoch, user_id, total_epochs):
-        # precision is computed through
-        # # of truly detected noisy labels / total # of detected noisy labels
+        # precision = # of clean examples in selected set / # of total selected set
+        # recall = # of clean examples in selected set / # of total clean in data
+
+        clean_data = set(self.user_clean_data[user_id])
 
         if self.clean_ids:
             self.clean_ids = np.array(self.clean_ids)
-            pred_noisy_data = set(self.user_total_data[user_id]) - set(self.clean_ids)
+            pred_clean_data = set(self.user_clean_data[user_id]) & set(self.clean_ids)
         else:
-            pred_noisy_data = []
+            pred_clean_data = []
 
-        noisy_data = self.user_noisy_data[user_id]
-        correct_pred_noisy_data = set(pred_noisy_data) & set(noisy_data)
+        correct_pred_clean_data = set(pred_clean_data) & set(clean_data)
 
-        precision = len(correct_pred_noisy_data) / max(len(pred_noisy_data), 1)
-        recall = len(correct_pred_noisy_data) / max(len(noisy_data), 1)
+        precision = len(correct_pred_clean_data) / max(len(self.clean_ids), 1)
+        recall = len(correct_pred_clean_data) / max(len(clean_data), 1)
 
         self.wr.writerow([epoch, user_id, total_epochs, precision, recall])
 
