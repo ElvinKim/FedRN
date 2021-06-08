@@ -24,7 +24,7 @@ nsml run -e main_fed_LNL.py -d cifar-10 -m "pairflip non-iid 0.4 / selfie" -g 1 
 nsml run -e main_fed_LNL.py -d cifar-10 -m "symmetric non-iid 0.3-0.5 / selfie" -g 1 -c 1 --gpu-driver-version 440 --memory 7G -a "\
 --dataset cifar
 --noise_type_lst symmetric
---noise_group_num 50
+--noise_group_num 100
 --group_noise_rate 0.3 0.5
 --forget_rate 0.5
 --save_dir ./
@@ -34,7 +34,7 @@ nsml run -e main_fed_LNL.py -d cifar-10 -m "symmetric non-iid 0.3-0.5 / selfie" 
 nsml run -e main_fed_LNL.py -d cifar-10 -m "pairflip non-iid 0.3-0.5 / selfie" -g 1 -c 1 --gpu-driver-version 440 --memory 7G -a "\
 --dataset cifar
 --noise_type_lst pairflip
---noise_group_num 50
+--noise_group_num 100
 --group_noise_rate 0.3 0.5
 --forget_rate 0.5
 --save_dir ./
