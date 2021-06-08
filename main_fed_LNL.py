@@ -216,7 +216,7 @@ if __name__ == '__main__':
             num_gradual = args.epochs
 
         else:
-            exit("Error: Forget rate schedule - fix for stairstep")
+            exit("Error: Forget rate schedule - fix or stairstep")
 
         forget_rate = args.forget_rate
         exponent = 1

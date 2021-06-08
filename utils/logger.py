@@ -120,7 +120,7 @@ class NoiseLogger:
         self.f = open(result_dir + result_f + ".csv", 'w', newline='')
         self.wr = csv.writer(self.f)
 
-        self.wr.writerow(['epoch', 'user_id', 'total_epochs', 'precision', 'recall'])
+        self.wr.writerow(['epoch', 'user_id', 'total_epochs', 'TP', 'FP', 'FN', 'TN', 'precision', 'recall'])
 
         self.user_total_data = dict_users
         self.user_noisy_data = user_noisy_data
@@ -142,13 +142,21 @@ class NoiseLogger:
         else:
             pred_noisy_data = []
 
+        pred_clean_data = set(self.clean_ids)
         noisy_data = self.user_noisy_data[user_id]
+        clean_data = set(self.user_total_data[user_id]) - set(noisy_data)
+        
         correct_pred_noisy_data = set(pred_noisy_data) & set(noisy_data)
+        
+        true_positive = len(set(pred_noisy_data) & set(noisy_data))
+        false_positive = len(set(pred_noisy_data) & set(clean_data))
+        false_negative = len(set(pred_clean_data) & set(noisy_data))
+        true_negative = len(set(pred_clean_data) & set(clean_data))
 
-        precision = len(correct_pred_noisy_data) / max(len(pred_noisy_data), 1)
-        recall = len(correct_pred_noisy_data) / max(len(noisy_data), 1)
+        precision = true_positive / max(true_positive + false_positive, 1)
+        recall = true_positive / max(true_positive + false_negative, 1)
 
-        self.wr.writerow([epoch, user_id, total_epochs, precision, recall])
+        self.wr.writerow([epoch, user_id, total_epochs, true_positive, false_positive, false_negative, true_negative, precision, recall])
 
         self.clean_ids = []
 
