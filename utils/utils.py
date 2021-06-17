@@ -6,6 +6,7 @@ import errno
 import numpy as np
 from numpy.testing import assert_array_almost_equal
 import random
+import csv
 
 
 def check_integrity(fpath, md5):
@@ -209,3 +210,4 @@ def noisify_label(true_label, num_classes=10, noise_type="symmetric"):
 
     elif noise_type == "pairflip":
         return (true_label - 1) % num_classes
+

@@ -8,11 +8,12 @@ from torch import nn
 
 
 class LocalModelWeights:
-    def __init__(self, all_clients, net_glob, num_users, method):
+    def __init__(self, all_clients, net_glob, num_users, method, model):
         self.all_clients = all_clients
         self.num_users = num_users
         self.method = method
-
+        self.model = model
+        
         w_glob = net_glob.state_dict()
         self.w_locals = []
 
@@ -34,15 +35,16 @@ class LocalModelWeights:
     def average(self):
         w_glob = None
         if self.method == 'fedavg':
-            w_glob = FedAvg(self.w_locals)
+            w_glob = FedAvg(self.w_locals, self.model)
 
         return w_glob
 
 
-def FedAvg(w):
+def FedAvg(w, model):
     w_avg = copy.deepcopy(w[0])
     for k in w_avg.keys():
         for i in range(1, len(w)):
             w_avg[k] += w[i][k]
         w_avg[k] = torch.div(w_avg[k], len(w))
+            
     return w_avg

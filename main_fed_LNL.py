@@ -149,6 +149,8 @@ if __name__ == '__main__':
             num_imgs=num_imgs,
         )
 
+    tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
+    tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)
     ##############################
     # Add label noise to data
     ##############################
@@ -170,23 +172,12 @@ if __name__ == '__main__':
     for num_users_in_group, noise_type, (min_group_noise_rate, max_group_noise_rate) in zip(
             args.noise_group_num, args.noise_type_lst, args.group_noise_rate):
         noise_types = [noise_type] * num_users_in_group
-
-<<<<<<< HEAD
-    elif args.experiment == "case2":
-        for num_users_in_group, group_noise_rate, noise_type in zip(
-                args.noise_group_num, args.group_noise_rate, args.noise_type_lst):
-            for user in range(num_users_in_group):
-                noise_rate = group_noise_rate / (num_users_in_group - 1) * user
-                user_noise_rates.append((noise_type, noise_rate))
-                
-    tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
-    tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)
-=======
+        
         step = (max_group_noise_rate - min_group_noise_rate) / num_users_in_group
         noise_rates = np.array(range(num_users_in_group)) * step + min_group_noise_rate
 
         user_noise_type_rates += [*zip(noise_types, noise_rates)]
->>>>>>> 0d813a951a4d411dfbbdc6cae649f2713ad3135c
+
 
     user_noisy_data = {user: [] for user in dict_users}
     for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_type_rates):
