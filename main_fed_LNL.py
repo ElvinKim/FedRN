@@ -355,7 +355,7 @@ if __name__ == '__main__':
 
         logger.write(epoch=epoch + 1, **results)
         
-        if epoch in args.log_epoch:
+        if epoch in args.loss_dist_epoch:
             if args.send_2_models:
                 get_loss_dist(args, dataset_train, tmp_true_labels, net_glob, net_glob2)
             else:
