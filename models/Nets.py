@@ -28,7 +28,7 @@ def get_model(args):
 
     elif args.model == "cnn4conv":
         model = CNN4Conv(args=args)
-
+        
     else:
         raise NotImplementedError('Error: unrecognized model')
 
@@ -156,41 +156,9 @@ class CNN(nn.Module):
         if self.top_bn:
             logit = call_bn(self.bn_c1, logit)
         if self.feature_return:
-            return logit, self.extract_features(x)
+            return logit, h
         return logit
-    
-    def extract_features(self, x):
-        h = x
-        h = self.c1(h)
-        h = F.leaky_relu(self.bn1(h), negative_slope=0.01)
-        h = self.c2(h)
-        h = F.leaky_relu(self.bn2(h), negative_slope=0.01)
-        h = self.c3(h)
-        h = F.leaky_relu(self.bn3(h), negative_slope=0.01)
-        h = F.max_pool2d(h, kernel_size=2, stride=2)
-        h = F.dropout2d(h, p=self.dropout_rate)
 
-        h = self.c4(h)
-        h = F.leaky_relu(self.bn4(h), negative_slope=0.01)
-        h = self.c5(h)
-        h = F.leaky_relu(self.bn5(h), negative_slope=0.01)
-        h = self.c6(h)
-        h = F.leaky_relu(self.bn6(h), negative_slope=0.01)
-        h = F.max_pool2d(h, kernel_size=2, stride=2)
-        h = F.dropout2d(h, p=self.dropout_rate)
-
-        h = self.c7(h)
-        h = F.leaky_relu(self.bn7(h), negative_slope=0.01)
-        h = self.c8(h)
-        h = F.leaky_relu(self.bn8(h), negative_slope=0.01)
-        h = self.c9(h)
-        h = F.leaky_relu(self.bn9(h), negative_slope=0.01)
-        h = F.avg_pool2d(h, kernel_size=h.data.shape[2])
-
-        h = h.view(h.size(0), h.size(1))
-        
-        return h
-    
 
 
 '''MobileNet in PyTorch.
@@ -286,11 +254,5 @@ class CNN4Conv(nn.Module):
         logits = self.linear(features)
 
         if self.args.feature_return:
-            return logits, self.extract_features(x)
+            return logits, features
         return logits
-
-    def extract_features(self, x):
-        features = self.features(x)
-        features = features.view((features.size(0), -1))
-
-        return features
