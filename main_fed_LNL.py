@@ -14,15 +14,19 @@ import torch
 from utils import CIFAR10, MNIST, Logger, NoiseLogger
 from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
-from utils.utils import noisify_label
+from utils.utils import noisify_label 
+from utils.logger import get_loss_dist
 
 from models.Update import get_local_update_objects
 from models.Nets import get_model
 from models.Fed import LocalModelWeights
 from models.test import test_img
 import nsml
+import time
 
 if __name__ == '__main__':
+
+    start = time.time()
     # parse args
     args = args_parser()
     args.device = torch.device(
@@ -39,6 +43,7 @@ if __name__ == '__main__':
         args.weight_decay = 0.0001
         args.lr = 0.25
         args.model = 'cnn9'
+        args.feature_return = True
     
     
     # determine feature dimension
@@ -165,6 +170,9 @@ if __name__ == '__main__':
             for user in range(num_users_in_group):
                 noise_rate = group_noise_rate / (num_users_in_group - 1) * user
                 user_noise_rates.append((noise_type, noise_rate))
+                
+    tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
+    tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)
 
     user_noisy_data = {user: [] for user in dict_users}
     for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_rates):
@@ -228,11 +236,11 @@ if __name__ == '__main__':
         all_clients=args.all_clients,
         num_users=args.num_users,
         method=args.fed_method,
+        model=args.model
     )
     local_weights = LocalModelWeights(net_glob=net_glob, **fed_args)
     if args.send_2_models:
         local_weights2 = LocalModelWeights(net_glob=net_glob2, **fed_args)
-
         
     f_G = torch.randn(args.num_classes, args.feature_dim, device=args.device)
     
@@ -244,6 +252,7 @@ if __name__ == '__main__':
         noise_rates=user_noise_rates,
         net_glob=net_glob,
         noise_logger=noise_logger,
+        tmp_true_labels=tmp_true_labels
     )
 
     for epoch in range(args.epochs):
@@ -264,13 +273,12 @@ if __name__ == '__main__':
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         
         # Local Update
-        for idx in idxs_users:
+        for client_num, idx in enumerate(idxs_users):
             local = local_update_objects[idx]
             local.args = args
 
             if args.send_2_models:
-                w, loss, w2, loss2 = local.train(copy.deepcopy(net_glob).to(args.device),
-                                                 copy.deepcopy(net_glob2).to(args.device))
+                w, loss, w2, loss2 = local.train(client_num, copy.deepcopy(net_glob).to(args.device), copy.deepcopy(net_glob2).to(args.device))
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
                 local_weights2.update(idx, w2)
@@ -278,16 +286,18 @@ if __name__ == '__main__':
 
             else:
                 if args.method == 'RFL':
-                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device), f_G)
+                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device), f_G, client_num)
                     f_locals.append(f_k)
 
                 else:
-                    w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
+                    w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device))
+                
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
-                
+            
         w_glob = local_weights.average()  # update global weights
-        net_glob.load_state_dict(w_glob)  # copy weight to net_glob
+        net_glob.load_state_dict(w_glob, strict=False)  # copy weight to net_glob
+        
         local_weights.init()
         
         if args.method == 'RFL':
@@ -300,14 +310,13 @@ if __name__ == '__main__':
                 tmp += sim_weight * i
             for i in range(len(w_sum)):
                 if w_sum[i] == 0:
-                    w_sum[i] = 1
-           
+                    w_sum[i] = 1   
             f_G = torch.div(tmp, w_sum)
         
-        #print('f_G {}'.format(f_G))
-        # for logging purposes
         train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
         test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)
+
+        # for logging purposes
         results = dict(train_acc=train_acc, train_loss=train_loss,
                        test_acc=test_acc, test_loss=test_loss,)
 
@@ -315,19 +324,25 @@ if __name__ == '__main__':
             w_glob2 = local_weights2.average()
             net_glob2.load_state_dict(w_glob2)
             local_weights2.init()
-
             # for logging purposes
             train_acc2, train_loss2 = test_img(net_glob2, log_train_data_loader, args)
             test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
             results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
                             test_acc2=test_acc2, test_loss2=test_loss2, )
             results = {**results, **results2}
-
+            
         print('Round {:3d}'.format(epoch))
         print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
 
         logger.write(epoch=epoch + 1, **results)
-
+        
+        if epoch in args.log_epoch:
+            if args.send_2_models:
+                get_loss_dist(args, dataset_train, tmp_true_labels, net_glob, net_glob2)
+            else:
+                get_loss_dist(args, dataset_train, tmp_true_labels, net_glob)
+        
+        
         if nsml.IS_ON_NSML:
             nsml_results = {result_key.replace('_', '__'): result_value
                             for result_key, result_value in results.items()}
@@ -341,3 +356,4 @@ if __name__ == '__main__':
 
     logger.close()
     noise_logger.close()
+    print("time :", time.time() - start)
