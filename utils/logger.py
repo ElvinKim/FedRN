@@ -1,5 +1,6 @@
 import os
 import csv
+import numpy as np
 import nsml
 import torch
 from torch import nn, autograd
@@ -15,6 +16,24 @@ class Logger:
         else:
             result_dir = './save/{}/'.format(args.save_dir)
 
+        result_f = '{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
+            args.dataset,
+            args.method,
+            args.model,
+            args.epochs,
+            args.frac,
+            args.local_bs,
+            args.local_ep,
+            args.iid,
+            args.lr,
+            args.momentum,
+            args.noise_type_lst,
+            args.noise_group_num,
+            args.group_noise_rate,
+            args.partition,
+            args.experiment
+        )
+        
         if nsml.IS_ON_NSML:
             result_f = 'accuracy'
         else:
@@ -37,6 +56,9 @@ class Logger:
                 args.T_pl,
                 args.labeling
             )
+            
+            if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
+                result_f += "_FR[{}]_FRS[{}]".format(args.forget_rate, args.forget_rate_schedule)
 
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)
@@ -102,7 +124,7 @@ class NoiseLogger:
         self.f = open(result_dir + result_f + ".csv", 'w', newline='')
         self.wr = csv.writer(self.f)
 
-        self.wr.writerow(['epoch', 'user_id', 'total_epochs', 'precision', 'recall'])
+        self.wr.writerow(['epoch', 'user_id', 'total_epochs', 'TP', 'FP', 'FN', 'TN', 'precision', 'recall'])
 
         self.user_total_data = dict_users
         self.user_noisy_data = user_noisy_data
@@ -115,21 +137,29 @@ class NoiseLogger:
         self.clean_ids.extend(ids)
 
     def write(self, epoch, user_id, total_epochs):
-        # precision is computed through
-        # # of truly detected noisy labels / total # of detected noisy labels
+        # precision = # of clean examples in selected set / # of total selected set
+        # recall = # of clean examples in selected set / # of total clean in data
+
+        clean_data = set(self.user_clean_data[user_id])
+        noisy_data = set(self.user_noisy_data[user_id])
 
         if self.clean_ids:
-            pred_noisy_data = set(self.user_total_data[user_id]) - set(self.clean_ids)
+            self.clean_ids = np.array(self.clean_ids)
+            pred_clean_data = set(self.clean_ids)
         else:
-            pred_noisy_data = []
+            pred_clean_data = set()
 
-        noisy_data = self.user_noisy_data[user_id]
-        correct_pred_noisy_data = set(pred_noisy_data) & set(noisy_data)
+        pred_noisy_data = set(self.user_total_data[user_id]) - set(self.clean_ids)
 
-        precision = len(correct_pred_noisy_data) / max(len(pred_noisy_data), 1)
-        recall = len(correct_pred_noisy_data) / max(len(noisy_data), 1)
+        true_positive = len(set(pred_clean_data) & set(clean_data))
+        false_positive = len(set(pred_clean_data) & set(noisy_data))
+        false_negative = len(set(pred_noisy_data) & set(clean_data))
+        true_negative = len(set(pred_noisy_data) & set(noisy_data))
 
-        self.wr.writerow([epoch, user_id, total_epochs, precision, recall])
+        precision = true_positive / max(true_positive + false_positive, 1)
+        recall = true_positive / max(true_positive + false_negative, 1)
+
+        self.wr.writerow([epoch, user_id, total_epochs, true_positive, false_positive, false_negative, true_negative, precision, recall])
 
         self.clean_ids = []
 

@@ -146,8 +146,7 @@ class SemiLoss:
 
         return Lx + lamb * Lu
 
-
-def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, net_glob=None, noise_logger=None, tmp_true_labels=None):
+def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, net_glob=None, net_local_lst=None, noise_logger=None, tmp_true_labels=None):
     local_update_objects = []
     for idx, noise_rate in zip(range(args.num_users), noise_rates):
         local_update_args = dict(
@@ -197,6 +196,9 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
 
         elif args.method == 'fedprox':
             local_update_object = LocalUpdateFedProx(**local_update_args)
+            
+        elif args.method == 'lgcorrection':
+            local_update_object = LocalUpdateLGCorrection(noise_rate=noise_rate, l_net=net_local_lst[idx], **local_update_args)
 
         elif args.method == 'RFL':
             local_update_object = LocalUpdateRFL(**local_update_args)
@@ -769,21 +771,21 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
 
     def loss_coteaching(self, y_pred1, y_pred2, y_true, forget_rate):
         loss_1 = self.loss_func(y_pred1, y_true)
-        ind_1_sorted = np.argsort(loss_1.data.cpu()).cuda()
-        loss_1_sorted = loss_1[ind_1_sorted]
+        ind_1_sorted = torch.argsort(loss_1)
 
         loss_2 = self.loss_func(y_pred2, y_true)
-        ind_2_sorted = np.argsort(loss_2.data.cpu()).cuda()
-        loss_2_sorted = loss_2[ind_2_sorted]
+        ind_2_sorted = torch.argsort(loss_2)
 
         remember_rate = 1 - forget_rate
-        num_remember = int(remember_rate * len(loss_1_sorted))
+        num_remember = int(remember_rate * len(ind_1_sorted))
 
         ind_1_update = ind_1_sorted[:num_remember]
         ind_2_update = ind_2_sorted[:num_remember]
         # exchange
         loss_1_update = self.loss_func(y_pred1[ind_2_update], y_true[ind_2_update])
         loss_2_update = self.loss_func(y_pred2[ind_1_update], y_true[ind_1_update])
+
+        ind_1_update = list(ind_1_update.cpu().detach().numpy())
 
         return torch.sum(loss_1_update) / num_remember, torch.sum(loss_2_update) / num_remember, ind_1_update
 
@@ -1436,7 +1438,7 @@ class LocalUpdateHS(BaseLocalUpdate):
 
     def train(self, net, net2=None):
         self.count += 1
-        if self.args.g_epoch <= self.args.warmup:
+        if self.args.g_epoch <= self.args.warmup_epochs:
             return self.train_single_model(net)
         else:
             return self.train_2_phase(net)
@@ -1491,3 +1493,86 @@ class LocalUpdateHS(BaseLocalUpdate):
 
     def criterion_softlabel(self, outputs, soft_targets):
         return self.loss_func(F.softmax(outputs), soft_targets)
+
+    
+class LocalUpdateLGCorrection(LocalUpdateSELFIE):
+    def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_rate=0, noise_logger=None, tmp_true_labels=None, l_net=None):
+        super().__init__(
+            args=args,
+            user_idx=user_idx,
+            dataset=dataset,
+            idxs=idxs,
+            noise_rate=noise_rate,
+            noise_logger=noise_logger,
+            tmp_true_labels=tmp_true_labels
+        )
+        
+        self.l_net = l_net
+        
+    def train(self, net):
+        g_net = copy.deepcopy(net)
+        
+        
+        optimizer = torch.optim.SGD(
+            net.parameters(),
+            lr=self.args.lr,
+            momentum=self.args.momentum,
+            weight_decay=self.args.weight_decay,
+        )
+        
+        epoch_loss = []
+        for epoch in range(self.args.local_ep):
+            self.epoch = epoch
+            batch_loss = []
+            for batch_idx, batch in enumerate(self.ldr_train):
+                self.batch_idx = batch_idx
+                
+                net.zero_grad()
+                images, labels, _, ids = batch
+                images = images.to(self.args.device)
+                labels = labels.to(self.args.device)
+                ids = ids.numpy()
+
+                log_probs = net(images)
+                loss_array = self.loss_func(log_probs, labels)
+
+                # update prediction history
+                self.corrector.update_prediction_history(
+                    ids=ids,
+                    outputs=log_probs.cpu().detach().numpy(),
+                )
+
+                if self.total_epochs >= self.warmup:
+                    # correct labels, remove noisy data
+                    images, labels = self.corrector.patch_clean_with_corrected_sample_batch(
+                        ids=ids,
+                        X=images,
+                        y=labels,
+                        loss_array=loss_array.cpu().detach().numpy(),
+                    )
+                    
+                    images = images.to(self.args.device)
+                    labels = labels.to(self.args.device)
+                    log_probs = net(images)
+                    loss_array = self.loss_func(log_probs, labels)
+
+                loss = loss_array.mean()  
+                fed_prox_reg = 0.0
+                
+                for l_param, g_param in zip(net.parameters(), g_net.parameters()):
+                    fed_prox_reg += (0.01 / 2 * torch.norm((l_param - g_param)) ** 2)
+                loss += fed_prox_reg
+                
+                loss.backward()
+                optimizer.step()
+
+                batch_loss.append(loss.item())
+                self.on_batch_end()
+
+            epoch_loss.append(sum(batch_loss) / len(batch_loss))
+            self.total_epochs += 1
+            self.on_epoch_end()
+
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+
+        

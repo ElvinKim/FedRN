@@ -11,12 +11,11 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox', 'RFL'
-                                 ],
+                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox', 'lgcorrection', 'RFL'],
                         help='method name')
 
     # federated arguments
-    parser.add_argument('--epochs', type=int, default=500, help="rounds of training")
+    parser.add_argument('--epochs', type=int, default=300, help="rounds of training")
     parser.add_argument('--num_users', type=int, default=100, help="number of users: K")
     parser.add_argument('--frac', type=float, default=0.1, help="the fraction of clients: C")
     parser.add_argument('--local_ep', type=int, default=5, help="the number of local epochs: E")
@@ -58,9 +57,11 @@ def args_parser():
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
     
     # noise label arguments
-    parser.add_argument('--noise_type_lst', nargs='+', help='[pairflip, symmetric]', default=['symmetric'])
+    parser.add_argument('--noise_type_lst', nargs='+', default=['symmetric'], help='[pairflip, symmetric]')
     parser.add_argument('--noise_group_num', nargs='+', default=[100], type=int)
-    parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float)
+    parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float,
+                        help='Should be 2 noise rates for each group: min_group_noise_rate max_group_noise_rate but '
+                             'if there is only 1 group and 1 noise rate, same noise rate will be applied to all users')
     parser.add_argument('--experiment', type=str, help='[case1, case2]', default='case1')
 
     # selfie / joint optimization arguments
@@ -76,6 +77,8 @@ def args_parser():
     # co-teaching arguments
     parser.add_argument('--num_gradual', type=int, help='T_k', default=10)
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
+    parser.add_argument('--forget_rate_schedule', type=str, default="fix", choices=['fix', 'stairstep'],
+                        help="forget rate schedule [fix, stairstep]")
     
     # MixMatch arguments
     parser.add_argument('--mm_alpha', default=4, type=float)

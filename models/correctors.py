@@ -12,6 +12,7 @@ class JointOptimCorrector:
         self.counts = np.zeros(data_size, dtype=int)
         # probability histories of samples
         self.probability_history = torch.zeros(data_size, queue_size, num_classes)
+        # self.prediction = np.zeros((self.args.epoch_update, len(self.train_data), 10) ,dtype=np.float32)
 
         # labels
         #self.hard_labels = torch.zeros(data_size, dtype=torch.int64)
@@ -170,9 +171,8 @@ class SelfieCorrector:
         # 2. get corrected samples
         corrected_batch = self.correct_samples(ids)
         # 3. merging
-        selected_ids = set(clean_batch) | set(corrected_batch)
         X, y = self.correct_and_select_certain_samples(ids, X, y, clean_batch, corrected_batch)
-        return X, y, selected_ids
+        return X, y, set(clean_batch)
 
     def clear_predictions(self):
         self.prediction_history.clear()
