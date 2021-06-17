@@ -71,6 +71,7 @@ def args_parser():
     # joint optimization arguments
     parser.add_argument('--alpha', type=float, default=1.2, help="alpha for joint optimization")
     parser.add_argument('--beta', type=float, default=0.8, help="beta for joint optimization")
+    parser.add_argument('--labeling', type=str, default='soft', help='[soft, hard]')
 
     # co-teaching arguments
     parser.add_argument('--num_gradual', type=int, help='T_k', default=10)
@@ -92,11 +93,16 @@ def args_parser():
     parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")
     
     # RFL arguments
-    parser.add_argument('--T_pl', type=int, help = 'T_pl', default=150)
+    parser.add_argument('--T_pl', type=int, help = 'T_pl', default=100)
     parser.add_argument('--feature_dim', type=int, help = 'feature dimension', default=256)
     parser.add_argument('--lambda_cen', type=float, help = 'lambda_cen', default=1.0)
     parser.add_argument('--lambda_e', type=float, help = 'lambda_e', default=0.8)
     parser.add_argument('--feature_return', action='store_true', help = 'feature extraction')
+    
+    #loss dist. log argument
+    parser.add_argument('--loss_dist_epoch', nargs='+', default=[90, 100, 110, 200, 300], type=int)
+    parser.add_argument('--save_dir2', type=str, default=None, help="for loss dist.")
+
     
     args = parser.parse_args()
     return args
