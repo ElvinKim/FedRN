@@ -1,7 +1,9 @@
 import os
 import csv
 import nsml
-
+import torch
+from torch import nn, autograd
+from torch.utils.data import DataLoader, Dataset
 
 class Logger:
     def __init__(self, args, use_2_models):
@@ -16,7 +18,7 @@ class Logger:
         if nsml.IS_ON_NSML:
             result_f = 'accuracy'
         else:
-            result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
+            result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]_TPL[{}]_LAB[{}]'.format(
                 args.dataset,
                 args.method,
                 args.model,
@@ -31,7 +33,9 @@ class Logger:
                 args.noise_group_num,
                 args.group_noise_rate,
                 args.partition,
-                args.experiment
+                args.experiment,
+                args.T_pl,
+                args.labeling
             )
 
         if not os.path.exists(result_dir):
@@ -131,3 +135,48 @@ class NoiseLogger:
 
     def close(self):
         self.f.close()
+
+        
+            
+def get_loss_dist(args, dataset, tmp_true_labels, net1, net2=None):
+    if args.save_dir2 is None:
+        result_dir = './save/'
+    else:
+        result_dir = './save/{}/'.format(args.save_dir2)
+
+    result_f = 'loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]_ep{}'.format(args.model, args.method, args.noise_type_lst, args.group_noise_rate, args.iid, args.g_epoch)            
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+
+    f = open(result_dir + result_f + ".csv", 'w', newline='')
+    wr = csv.writer(f)
+
+    wr.writerow(['data_idx', 'is_noise', 'loss'])
+
+    net1.eval() 
+    if args.send_2_models:
+        net2.eval()
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(DataLoader(dataset, batch_size=1, shuffle=False)):   
+            ce = nn.CrossEntropyLoss(reduce=False)
+            images, labels = batch
+            images, labels = images.to(args.device), labels.to(args.device)
+            if args.send_2_models:
+                logits1 = net1(images)
+                logits2 = net2(images)
+                loss1 = ce(logits1, labels)
+                loss2 = ce(logits2, labels)
+                loss = (loss1+loss2)/2
+            else:
+                if args.feature_return:
+                    logits, feature = net1(images)
+                else:
+                    logits = net1(images)
+                loss = ce(logits, labels)
+
+            if tmp_true_labels[batch_idx] != labels:
+                is_noise = 1
+            else:
+                is_noise = 0
+            wr.writerow([batch_idx, is_noise, loss.item()])
+    f.close()
