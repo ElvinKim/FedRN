@@ -13,6 +13,7 @@ from sklearn.mixture import GaussianMixture
 from .correctors import SelfieCorrector, JointOptimCorrector
 import os
 import csv
+from utils.logger import get_loss_dist
 
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs, idx_return=False, real_idx_return=False):
@@ -298,6 +299,9 @@ class BaseLocalUpdate:
             self.total_epochs += 1
             self.on_epoch_end()
 
+        if self.args.g_epoch in self.args.loss_dist_epoch:
+            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels, net, client_num=client_num, client=True)
+
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
     def train_multiple_models(self, client_num, net1, net2):
@@ -342,7 +346,10 @@ class BaseLocalUpdate:
             epoch_loss2.append(sum(batch_loss2) / len(batch_loss2))
             self.total_epochs += 1
             self.on_epoch_end()
-
+            
+        if self.args.g_epoch in self.args.loss_dist_epoch:
+            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels, net1, net2=net2, client_num=client_num, client=True)
+        
         return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), \
                net2.state_dict(), sum(epoch_loss2) / len(epoch_loss2)
 
@@ -409,7 +416,8 @@ class LocalUpdateRFL(BaseLocalUpdate):
         
         if self.args.g_epoch < 100:
             lambda_cen = 0.01 * (self.args.g_epoch+1)
-        
+         
+        #return L_c + lambda_e * L_e
         return L_c + lambda_cen * L_cen + lambda_e * L_e
              
     def get_small_loss_samples(self, y_pred, y_true, forget_rate):
@@ -421,7 +429,7 @@ class LocalUpdateRFL(BaseLocalUpdate):
         num_remember = int(remember_rate * len(loss_sorted))
 
         ind_update=ind_sorted[:num_remember]
-
+        
         return ind_update
         
     def train(self, net, f_G, client_num):
@@ -475,10 +483,6 @@ class LocalUpdateRFL(BaseLocalUpdate):
                     if y_k_tilde[i] == labels[i]:
                         mask[i] = 1
 
-                # psuedo labeling accuracy
-                # 진짜로 바뀐게 몇개인지 확인
-                # joint 확인 (soft, hard)
-                
                 if client_num == 0 and iter == 0:
                     if batch_idx == 0:
                         print('============================================================================')
@@ -537,7 +541,10 @@ class LocalUpdateRFL(BaseLocalUpdate):
                 print('<<<<<<<<<<pseudo labeing accuracy>>>>>>>>>>: {}'.format(100*correct_num/total))
                 
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
-
+        
+        if self.args.g_epoch == 100:
+            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels, net, client_num=client_num, client=True)
+            
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), f_k         
 
     

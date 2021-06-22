@@ -228,7 +228,7 @@ if __name__ == '__main__':
 
     forget_rate_schedule = []
 
-    if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
+    if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching', 'RFL']:
         if args.forget_rate_schedule == "fix":
             num_gradual = args.warmup_epochs
 
@@ -237,7 +237,7 @@ if __name__ == '__main__':
 
         else:
             exit("Error: Forget rate schedule - fix or stairstep")
-
+            
         forget_rate = args.forget_rate
         exponent = 1
         forget_rate_schedule = np.ones(args.epochs) * forget_rate
@@ -305,7 +305,7 @@ if __name__ == '__main__':
 
             else:
                 if args.method == 'RFL':
-                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device), f_G, client_num)
+                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device), copy.deepcopy(f_G).to(args.device), client_num)
                     f_locals.append(f_k)
 
                 else:
@@ -329,6 +329,7 @@ if __name__ == '__main__':
                 tmp += sim_weight * i
             for i in range(len(w_sum)):
                 if w_sum[i] == 0:
+                    print('check')
                     w_sum[i] = 1   
             f_G = torch.div(tmp, w_sum)
         
