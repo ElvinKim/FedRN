@@ -10,3 +10,4 @@ save_backup2/
 .idea
 nsml.py
 *_backup.py
+data/*
