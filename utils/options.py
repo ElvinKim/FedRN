@@ -11,7 +11,8 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox', 'lgcorrection', 'RFL'],
+                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox',
+                                 'lgcorrection', 'RFL'],
                         help='method name')
 
     # federated arguments
@@ -55,7 +56,7 @@ def args_parser():
     parser.add_argument('--verbose', action='store_true', help='verbose print')
     parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
-    
+
     # noise label arguments
     parser.add_argument('--noise_type_lst', nargs='+', default=['symmetric'], help='[pairflip, symmetric]')
     parser.add_argument('--noise_group_num', nargs='+', default=[100], type=int)
@@ -79,7 +80,7 @@ def args_parser():
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
     parser.add_argument('--forget_rate_schedule', type=str, default="fix", choices=['fix', 'stairstep'],
                         help="forget rate schedule [fix, stairstep]")
-    
+
     # MixMatch arguments
     parser.add_argument('--mm_alpha', default=4, type=float)
     parser.add_argument('--lambda_u', default=25, type=float, help='weight for unsupervised loss')
@@ -94,18 +95,17 @@ def args_parser():
 
     # finetuning arguments
     parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")
-    
+
     # RFL arguments
-    parser.add_argument('--T_pl', type=int, help = 'T_pl', default=100)
-    parser.add_argument('--feature_dim', type=int, help = 'feature dimension', default=256)
-    parser.add_argument('--lambda_cen', type=float, help = 'lambda_cen', default=1.0)
-    parser.add_argument('--lambda_e', type=float, help = 'lambda_e', default=0.8)
-    parser.add_argument('--feature_return', action='store_true', help = 'feature extraction')
-    
-    #loss dist. log argument
+    parser.add_argument('--T_pl', type=int, help='T_pl', default=100)
+    parser.add_argument('--feature_dim', type=int, help='feature dimension', default=256)
+    parser.add_argument('--lambda_cen', type=float, help='lambda_cen', default=1.0)
+    parser.add_argument('--lambda_e', type=float, help='lambda_e', default=0.8)
+    parser.add_argument('--feature_return', action='store_true', help='feature extraction')
+
+    # loss dist. log argument
     parser.add_argument('--loss_dist_epoch', nargs='+', default=[90, 100, 110, 200, 300], type=int)
     parser.add_argument('--save_dir2', type=str, default=None, help="for loss dist.")
 
-    
     args = parser.parse_args()
     return args

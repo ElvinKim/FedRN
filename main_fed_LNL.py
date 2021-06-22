@@ -14,7 +14,7 @@ import torch
 from utils import CIFAR10, MNIST, Logger, NoiseLogger
 from utils.sampling import sample_iid, sample_noniid
 from utils.options import args_parser
-from utils.utils import noisify_label 
+from utils.utils import noisify_label
 from utils.logger import get_loss_dist
 
 from models.Update import get_local_update_objects
@@ -37,16 +37,14 @@ if __name__ == '__main__':
     )
     args.schedule = [int(x) for x in args.schedule]
     args.send_2_models = args.method in ['coteaching', 'coteaching+', 'dividemix', ]
-    
-    
+
     # Reproducing "Robust Fl with NLs"
     if args.reproduce and args.method == 'RFL':
         args.weight_decay = 0.0001
         args.lr = 0.25
         args.model = 'cnn9'
         args.feature_return = True
-    
-    
+
     # determine feature dimension
     if args.model == 'cnn9':
         args.feature_dim = 128
@@ -55,7 +53,6 @@ if __name__ == '__main__':
     else:
         # Otherwise, need to check
         args.feature_dim = 0
-
 
     for x in vars(args).items():
         print(x)
@@ -172,12 +169,11 @@ if __name__ == '__main__':
     for num_users_in_group, noise_type, (min_group_noise_rate, max_group_noise_rate) in zip(
             args.noise_group_num, args.noise_type_lst, args.group_noise_rate):
         noise_types = [noise_type] * num_users_in_group
-        
+
         step = (max_group_noise_rate - min_group_noise_rate) / num_users_in_group
         noise_rates = np.array(range(num_users_in_group)) * step + min_group_noise_rate
 
         user_noise_type_rates += [*zip(noise_types, noise_rates)]
-
 
     user_noisy_data = {user: [] for user in dict_users}
     for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_type_rates):
@@ -198,7 +194,7 @@ if __name__ == '__main__':
 
     for user, user_noise_type_rate in enumerate(user_noise_type_rates):
         print("USER {} - {}".format(user, user_noise_type_rate))
-        
+
     # for logging purposes
     log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
     log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)
@@ -237,7 +233,7 @@ if __name__ == '__main__':
 
         else:
             exit("Error: Forget rate schedule - fix or stairstep")
-            
+
         forget_rate = args.forget_rate
         exponent = 1
         forget_rate_schedule = np.ones(args.epochs) * forget_rate
@@ -255,13 +251,13 @@ if __name__ == '__main__':
         method=args.fed_method,
         model=args.model
     )
-    
+
     local_weights = LocalModelWeights(net_glob=net_glob, **fed_args)
     if args.send_2_models:
         local_weights2 = LocalModelWeights(net_glob=net_glob2, **fed_args)
-        
+
     f_G = torch.randn(args.num_classes, args.feature_dim, device=args.device)
-    
+
     # Initialize local update objects
     local_update_objects = get_local_update_objects(
         args=args,
@@ -287,17 +283,18 @@ if __name__ == '__main__':
         local_losses2 = []
         args.g_epoch = epoch
         f_locals = []
-        
+
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-        
+
         # Local Update
         for client_num, idx in enumerate(idxs_users):
             local = local_update_objects[idx]
             local.args = args
 
             if args.send_2_models:
-                w, loss, w2, loss2 = local.train(client_num, copy.deepcopy(net_glob).to(args.device), copy.deepcopy(net_glob2).to(args.device))
+                w, loss, w2, loss2 = local.train(client_num, copy.deepcopy(net_glob).to(args.device),
+                                                 copy.deepcopy(net_glob2).to(args.device))
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
                 local_weights2.update(idx, w2)
@@ -305,22 +302,23 @@ if __name__ == '__main__':
 
             else:
                 if args.method == 'RFL':
-                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device), copy.deepcopy(f_G).to(args.device), client_num)
+                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device),
+                                               copy.deepcopy(f_G).to(args.device), client_num)
                     f_locals.append(f_k)
 
                 else:
                     w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device))
-                
+
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
-            
+
         w_glob = local_weights.average()  # update global weights
         net_glob.load_state_dict(w_glob, strict=False)  # copy weight to net_glob
-        
+
         local_weights.init()
-        
+
         if args.method == 'RFL':
-            sim = torch.nn.CosineSimilarity(dim=1) 
+            sim = torch.nn.CosineSimilarity(dim=1)
             tmp = 0
             w_sum = 0
             for i in f_locals:
@@ -330,15 +328,15 @@ if __name__ == '__main__':
             for i in range(len(w_sum)):
                 if w_sum[i] == 0:
                     print('check')
-                    w_sum[i] = 1   
+                    w_sum[i] = 1
             f_G = torch.div(tmp, w_sum)
-        
+
         train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
         test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)
 
         # for logging purposes
         results = dict(train_acc=train_acc, train_loss=train_loss,
-                       test_acc=test_acc, test_loss=test_loss,)
+                       test_acc=test_acc, test_loss=test_loss, )
 
         if args.send_2_models:
             w_glob2 = local_weights2.average()
@@ -350,19 +348,18 @@ if __name__ == '__main__':
             results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
                             test_acc2=test_acc2, test_loss2=test_loss2, )
             results = {**results, **results2}
-            
+
         print('Round {:3d}'.format(epoch))
         print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
 
         logger.write(epoch=epoch + 1, **results)
-        
+
         if epoch in args.loss_dist_epoch:
             if args.send_2_models:
                 get_loss_dist(args, dataset_train, tmp_true_labels, net_glob, net_glob2)
             else:
                 get_loss_dist(args, dataset_train, tmp_true_labels, net_glob)
-        
-        
+
         if nsml.IS_ON_NSML:
             nsml_results = {result_key.replace('_', '__'): result_value
                             for result_key, result_value in results.items()}
