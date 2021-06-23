@@ -6,6 +6,7 @@ import torch
 from torch import nn, autograd
 from torch.utils.data import DataLoader, Dataset
 
+
 class Logger:
     def __init__(self, args, use_2_models):
         self.use_2_models = use_2_models
@@ -33,7 +34,7 @@ class Logger:
             args.partition,
             args.experiment
         )
-        
+
         if nsml.IS_ON_NSML:
             result_f = 'accuracy'
         else:
@@ -56,7 +57,7 @@ class Logger:
                 args.T_pl,
                 args.labeling
             )
-            
+
             if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
                 result_f += "_FR[{}]_FRS[{}]".format(args.forget_rate, args.forget_rate_schedule)
 
@@ -159,32 +160,50 @@ class NoiseLogger:
         precision = true_positive / max(true_positive + false_positive, 1)
         recall = true_positive / max(true_positive + false_negative, 1)
 
-        self.wr.writerow([epoch, user_id, total_epochs, true_positive, false_positive, false_negative, true_negative, precision, recall])
+        self.wr.writerow(
+            [epoch, user_id, total_epochs, true_positive, false_positive, false_negative, true_negative, precision,
+             recall])
 
         self.clean_ids = []
 
     def close(self):
         self.f.close()
 
-        
-            
+
 def get_loss_dist(args, dataset, tmp_true_labels, net1, net2=None, client_num=None, client=False):
     if args.save_dir2 is None:
         result_dir = './save/'
     else:
         result_dir = './save/{}/'.format(args.save_dir2)
-    
+
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    
-    if client:
-        result_f = 'client_loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]'.format(args.model, args.method, args.noise_type_lst, args.group_noise_rate, args.iid)  
+
+    if nsml.IS_ON_NSML:
+        if client:
+            result_f = 'client_loss_dist'
+        else:
+            result_f = 'loss_dist'
     else:
-        result_f = 'loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]'.format(args.model, args.method, args.noise_type_lst, args.group_noise_rate, args.iid)            
-    
+        if client:
+            result_f = 'client_loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]'.format(
+                args.model,
+                args.method,
+                args.noise_type_lst,
+                args.group_noise_rate,
+                args.iid)
+        else:
+            result_f = 'loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]'.format(
+                args.model,
+                args.method,
+                args.noise_type_lst,
+                args.group_noise_rate,
+                args.iid,
+            )
+
     f = open(result_dir + result_f + ".csv", 'a', newline='')
     wr = csv.writer(f)
-    
+
     if args.g_epoch == args.loss_dist_epoch[0]:
         if client:
             if client_num == 0:
@@ -194,38 +213,38 @@ def get_loss_dist(args, dataset, tmp_true_labels, net1, net2=None, client_num=No
         else:
             wr.writerow(['epoch', 'data_idx', 'is_noise', 'loss'])
 
-    net1.eval() 
+    net1.eval()
     if args.send_2_models:
         net2.eval()
-    
+
     ce = nn.CrossEntropyLoss(reduce=False)
     with torch.no_grad():
-        for batch_idx, batch in enumerate(DataLoader(dataset, batch_size=1, shuffle=False)):   
+        for batch_idx, batch in enumerate(DataLoader(dataset, batch_size=1, shuffle=False)):
             if client:
                 images, labels, _, real_idx = batch
             else:
                 images, labels = batch
-                
+
             images, labels = images.to(args.device), labels.to(args.device)
-            
+
             if args.send_2_models:
                 logits1 = net1(images)
                 logits2 = net2(images)
                 loss1 = ce(logits1, labels)
                 loss2 = ce(logits2, labels)
-                loss = (loss1+loss2)/2
+                loss = (loss1 + loss2) / 2
             else:
                 if args.feature_return:
                     logits, feature = net1(images)
                 else:
                     logits = net1(images)
                 loss = ce(logits, labels)
-                
+
             if client:
                 if tmp_true_labels[real_idx] != labels:
                     is_noise = 1
                 else:
-                    is_noise = 0   
+                    is_noise = 0
                 wr.writerow([args.g_epoch, client_num, real_idx.item(), is_noise, loss.item()])
             else:
                 if tmp_true_labels[batch_idx] != labels:
