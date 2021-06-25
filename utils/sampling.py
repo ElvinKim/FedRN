@@ -57,6 +57,7 @@ def sample_noniid(labels, num_users, num_shards):
     # data type cast
     for i in range(num_users):
         dict_users[i] = dict_users[i].astype('int').tolist()
+        np.random.shuffle(dict_users[i])
 
     return dict_users
 
