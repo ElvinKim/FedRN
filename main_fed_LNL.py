@@ -26,7 +26,6 @@ import time
 
 
 if __name__ == '__main__':
-
     start = time.time()
     # parse args
     args = args_parser()
@@ -131,19 +130,17 @@ if __name__ == '__main__':
         raise NotImplementedError('Error: unrecognized dataset')
 
     labels = np.array(dataset_train.train_labels)
-    num_imgs = len(dataset_train) // args.num_shards
     args.img_size = dataset_train[0][0].shape  # used to get model
     args.num_classes = num_classes
 
     # Sample users (iid / non-iid)
     if args.iid:
-        dict_users = sample_iid(dataset_train, args.num_users)
+        dict_users = sample_iid(labels, args.num_users)
     else:
         dict_users = sample_noniid(
             labels=labels,
             num_users=args.num_users,
             num_shards=args.num_shards,
-            num_imgs=num_imgs,
         )
 
     tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
