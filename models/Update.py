@@ -1271,9 +1271,9 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
         if self.args.g_epoch <= self.args.warmup_epochs:
             return self.train_multiple_models(client_num, net, net2)
         else:
-            return self.train_2_phase(net, net2)
+            return self.train_2_phase(client_num, net, net2)
 
-    def train_2_phase(self, net, net2):
+    def train_2_phase(self, client_num, net, net2):
         self.total_epochs += 1
 
         prob_dict1, label_idx1, unlabel_idx1 = self.update_probabilties_split_data_indices(net, self.loss_history1)
@@ -1304,6 +1304,9 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             epoch=self.args.g_epoch,
         )
 
+        if self.args.g_epoch in self.args.loss_dist_epoch:
+            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels, net, net2=net2, client_num=client_num, client=True)
+        
         return net.state_dict(), loss1, net2.state_dict(), loss2
 
     def divide_mix(self, net, net2, label_idx, prob_dict, unlabel_idx, warm_up, epoch):
