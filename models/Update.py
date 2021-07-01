@@ -13,7 +13,9 @@ from sklearn.mixture import GaussianMixture
 from .correctors import SelfieCorrector, JointOptimCorrector
 import os
 import csv
-from utils.logger import get_loss_dist
+from .Nets import get_model
+import nsml
+#from utils.logger import get_loss_dist
 
 
 class DatasetSplit(Dataset):
@@ -228,7 +230,7 @@ class BaseLocalUpdate:
     ):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
-
+        
         self.dataset = dataset
         self.idxs = idxs
         self.user_idx = user_idx
@@ -248,7 +250,12 @@ class BaseLocalUpdate:
         self.is_babu = is_babu
 
         self.tmp_true_labels = tmp_true_labels
-
+        
+        self.net1 = get_model(self.args)
+        self.net2 = get_model(self.args)
+        self.net1 = self.net1.to(self.args.device)
+        self.net2 = self.net2.to(self.args.device)
+        
     def update_label_accuracy(self):
         self.noise_logger.write(
             epoch=self.args.g_epoch,
@@ -261,6 +268,109 @@ class BaseLocalUpdate:
             return self.train_single_model(client_num, net)
         else:
             return self.train_multiple_models(client_num, net, net2)
+
+        
+    def get_loss_dist(self, client_num=None, client=True, all_client=False):
+        dataset = DatasetSplit(self.dataset, self.idxs, real_idx_return=True)
+   
+        if self.args.save_dir2 is None:
+            result_dir = './save/'
+        else:
+            result_dir = './save/{}/'.format(self.args.save_dir2)
+
+        if not os.path.exists(result_dir):
+            os.makedirs(result_dir)
+
+        if nsml.IS_ON_NSML:
+            if client:
+                result_f = 'client_loss_dist'
+            else:
+                result_f = 'loss_dist'
+        else:
+            if client:
+                if all_client:
+                    result_f = 'all_client_loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]'.format(
+                        self.args.model,
+                        self.args.method,
+                        self.args.noise_type_lst,
+                        self.args.group_noise_rate,
+                        self.args.iid)
+                else:
+                    result_f = 'client_loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]'.format(
+                        self.args.model,
+                        self.args.method,
+                        self.args.noise_type_lst,
+                        self.args.group_noise_rate,
+                        self.args.iid)
+            else:
+                result_f = 'loss_dist_model[{}]_method[{}]_noise{}_NR{}_IID[{}]'.format(
+                    self.args.model,
+                    self.args.method,
+                    self.args.noise_type_lst,
+                    self.args.group_noise_rate,
+                    self.args.iid,
+                )
+
+        f = open(result_dir + result_f + ".csv", 'a', newline='')
+        wr = csv.writer(f)
+        
+        if all_client:
+            if self.args.g_epoch == self.args.loss_dist_epoch2[0]:
+                if client_num == 0:
+                    wr.writerow(['epoch', 'client_num', 'data_idx', 'is_noise', 'loss'])
+                else:
+                    pass
+        else:
+            if self.args.g_epoch == self.args.loss_dist_epoch[0]:
+                if client:
+                    if client_num == 0:
+                        wr.writerow(['epoch', 'client_num', 'data_idx', 'is_noise', 'loss'])
+                    else:
+                        pass
+                else:
+                    wr.writerow(['epoch', 'data_idx', 'is_noise', 'loss'])
+
+        self.net1.eval()
+        if self.args.send_2_models:
+            self.net2.eval()
+
+        ce = nn.CrossEntropyLoss(reduce=False)
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(DataLoader(dataset, batch_size=1, shuffle=False)):
+                if client:
+                    images, labels, _, real_idx = batch
+                else:
+                    images, labels = batch
+
+                images, labels = images.to(self.args.device), labels.to(self.args.device)
+
+                if self.args.send_2_models:
+                    logits1 = self.net1(images)
+                    logits2 = self.net2(images)
+                    loss1 = ce(logits1, labels)
+                    loss2 = ce(logits2, labels)
+                    loss = (loss1 + loss2) / 2
+                else:
+                    if self.args.feature_return:
+                        logits, feature = self.net1(images)
+                    else:
+                        logits = self.net1(images)
+                    loss = ce(logits, labels)
+
+                if client:
+                    if self.tmp_true_labels[real_idx] != labels:
+                        is_noise = 1
+                    else:
+                        is_noise = 0
+                    wr.writerow([self.args.g_epoch, client_num, real_idx.item(), is_noise, loss.item()])
+                else:
+                    if self.tmp_true_labels[batch_idx] != labels:
+                        is_noise = 1
+                    else:
+                        is_noise = 0
+                    wr.writerow([self.args.g_epoch, batch_idx, is_noise, loss.item()])
+        f.close()
+
 
     def train_single_model(self, client_num, net):
         net.train()
@@ -301,10 +411,11 @@ class BaseLocalUpdate:
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
             self.total_epochs += 1
             self.on_epoch_end()
-
+        
+        self.net1.load_state_dict(net.state_dict())    
+        
         if self.args.g_epoch in self.args.loss_dist_epoch:
-            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels,
-                          net, client_num=client_num, client=True)
+            self.get_loss_dist(client_num=client_num, client=True)
 
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
@@ -350,10 +461,13 @@ class BaseLocalUpdate:
             epoch_loss2.append(sum(batch_loss2) / len(batch_loss2))
             self.total_epochs += 1
             self.on_epoch_end()
-
+        
+        
+        self.net1.load_state_dict(net1.state_dict())   
+        self.net2.load_state_dict(net2.state_dict())   
+        
         if self.args.g_epoch in self.args.loss_dist_epoch:
-            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels,
-                          net1, net2=net2, client_num=client_num, client=True)
+            self.get_loss_dist(client_num=client_num, client=True)
 
         return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), \
                net2.state_dict(), sum(epoch_loss2) / len(epoch_loss2)
@@ -556,10 +670,12 @@ class LocalUpdateRFL(BaseLocalUpdate):
                 print('<<<<<<<<<<pseudo labeing accuracy>>>>>>>>>>: {}'.format(100 * correct_num / total))
 
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
-
+        
+        
+        self.net1.load_state_dict(net.state_dict())   
+        
         if self.args.g_epoch == 100:
-            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels,
-                          net, client_num=client_num, client=True)
+            self.get_loss_dist(client_num=client_num, client=True)
 
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), f_k
 
@@ -1303,9 +1419,12 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             warm_up=self.args.warmup_epochs,
             epoch=self.args.g_epoch,
         )
-
+        
+        self.net1.load_state_dict(net.state_dict())   
+        self.net2.load_state_dict(net2.state_dict())   
+        
         if self.args.g_epoch in self.args.loss_dist_epoch:
-            get_loss_dist(self.args, DatasetSplit(self.dataset, self.idxs, real_idx_return=True), self.tmp_true_labels, net, net2=net2, client_num=client_num, client=True)
+            self.get_loss_dist(client_num=client_num, client=True)
         
         return net.state_dict(), loss1, net2.state_dict(), loss2
 

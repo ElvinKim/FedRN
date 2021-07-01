@@ -308,10 +308,14 @@ if __name__ == '__main__':
 
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
-
+        
+        if epoch in args.loss_dist_epoch2:
+            for client_num in range(args.num_users):
+                local_update_objects[client_num].get_loss_dist(client_num=client_num, client=True, all_client=True)
+        
         w_glob = local_weights.average()  # update global weights
         net_glob.load_state_dict(w_glob, strict=False)  # copy weight to net_glob
-
+        
         local_weights.init()
 
         if args.method == 'RFL':

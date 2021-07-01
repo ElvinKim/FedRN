@@ -104,8 +104,9 @@ def args_parser():
     parser.add_argument('--feature_return', action='store_true', help='feature extraction')
 
     # loss dist. log argument
-    parser.add_argument('--loss_dist_epoch', nargs='+', default=[90, 100, 110, 200, 300], type=int)
-    parser.add_argument('--save_dir2', type=str, default=None, help="for loss dist.")
+    parser.add_argument('--loss_dist_epoch', nargs='+', default=[], type=int)
+    parser.add_argument('--loss_dist_epoch2', nargs='+', default=[100], type=int)
+    parser.add_argument('--save_dir2', type=str, default='lossdist', help="for loss dist.")
 
     args = parser.parse_args()
     return args
