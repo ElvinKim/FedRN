@@ -9,10 +9,8 @@ import sys
 def args_parser():
     parser = argparse.ArgumentParser()
     # label noise method
-    parser.add_argument('--method', type=str, default='default',
-                        choices=['default', 'babu', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'gfilter', 'gmix', 'lgfinetune', 'finetune', 'history', 'lgteaching', 'fedprox',
-                                 'lgcorrection', 'RFL'],
+    parser.add_argument('--method', type=str, default='default', 
+                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix', 'RFL', "fedprox"], 
                         help='method name')
 
     # federated arguments
