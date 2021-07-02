@@ -167,9 +167,6 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
         if args.method == 'default':
             local_update_object = BaseLocalUpdate(**local_update_args)
 
-        elif args.method == 'babu':
-            local_update_object = BaseLocalUpdate(is_babu=True, **local_update_args)
-
         elif args.method == 'selfie':
             local_update_object = LocalUpdateSELFIE(noise_rate=noise_rate, **local_update_args)
 
@@ -182,30 +179,8 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
         elif args.method == 'dividemix':
             local_update_object = LocalUpdateDivideMix(**local_update_args)
 
-        elif args.method == 'gfilter':
-            local_update_object = LocalUpdateGFilter(**local_update_args)
-
-        elif args.method == 'gmix':
-            local_update_object = LocalUpdateGMix(**local_update_args)
-
-        elif args.method == 'lgfinetune':
-            local_update_object = LocalUpdateLGFineTuning(l_net=net_glob, **local_update_args)
-
-        elif args.method == 'finetune':
-            local_update_object = LocalUpdateFinetuning(**local_update_args)
-
-        elif args.method == 'history':
-            local_update_object = LocalUpdateHS(**local_update_args)
-
-        elif args.method == 'lgteaching':
-            local_update_object = LocalUpdateLGteaching(l_net=net_glob, **local_update_args)
-
         elif args.method == 'fedprox':
             local_update_object = LocalUpdateFedProx(**local_update_args)
-
-        elif args.method == 'lgcorrection':
-            local_update_object = LocalUpdateLGCorrection(noise_rate=noise_rate, l_net=net_local_lst[idx],
-                                                          **local_update_args)
 
         elif args.method == 'RFL':
             local_update_object = LocalUpdateRFL(**local_update_args)
