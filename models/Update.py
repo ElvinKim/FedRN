@@ -244,7 +244,6 @@ class BaseLocalUpdate:
         else:
             return self.train_multiple_models(client_num, net, net2)
 
-        
     def get_loss_dist(self, client_num=None, client=True, all_client=False):
         dataset = DatasetSplit(self.dataset, self.idxs, real_idx_return=True)
    
@@ -346,7 +345,6 @@ class BaseLocalUpdate:
                     wr.writerow([self.args.g_epoch, batch_idx, is_noise, loss.item()])
         f.close()
 
-
     def train_single_model(self, client_num, net):
         net.train()
 
@@ -436,8 +434,7 @@ class BaseLocalUpdate:
             epoch_loss2.append(sum(batch_loss2) / len(batch_loss2))
             self.total_epochs += 1
             self.on_epoch_end()
-        
-        
+
         self.net1.load_state_dict(net1.state_dict())   
         self.net2.load_state_dict(net2.state_dict())   
         
@@ -976,42 +973,50 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             return self.train_2_phase(client_num, net, net2)
 
     def train_2_phase(self, client_num, net, net2):
-        self.total_epochs += 1
+        epoch_loss1 = []
+        epoch_loss2 = []
 
-        prob_dict1, label_idx1, unlabel_idx1 = self.update_probabilties_split_data_indices(net, self.loss_history1)
-        prob_dict2, label_idx2, unlabel_idx2 = self.update_probabilties_split_data_indices(net2, self.loss_history2)
+        for ep in range(self.args.local_ep):
+            prob_dict1, label_idx1, unlabel_idx1 = self.update_probabilties_split_data_indices(net, self.loss_history1)
+            prob_dict2, label_idx2, unlabel_idx2 = self.update_probabilties_split_data_indices(net2, self.loss_history2)
 
-        self.noise_logger.update(label_idx1)
-        self.update_label_accuracy()
+            self.noise_logger.update(label_idx1)
+            self.update_label_accuracy()
 
-        # train net1
-        loss1 = self.divide_mix(
-            net=net,
-            net2=net2,
-            label_idx=label_idx2,
-            prob_dict=prob_dict2,
-            unlabel_idx=unlabel_idx2,
-            warm_up=self.args.warmup_epochs,
-            epoch=self.args.g_epoch,
-        )
+            # train net1
+            loss1 = self.divide_mix(
+                net=net,
+                net2=net2,
+                label_idx=label_idx2,
+                prob_dict=prob_dict2,
+                unlabel_idx=unlabel_idx2,
+                warm_up=self.args.warmup_epochs,
+                epoch=self.args.g_epoch,
+            )
 
-        # train net2
-        loss2 = self.divide_mix(
-            net=net2,
-            net2=net,
-            label_idx=label_idx1,
-            prob_dict=prob_dict1,
-            unlabel_idx=unlabel_idx1,
-            warm_up=self.args.warmup_epochs,
-            epoch=self.args.g_epoch,
-        )
-        
-        self.net1.load_state_dict(net.state_dict())   
-        self.net2.load_state_dict(net2.state_dict())   
-        
-        if self.args.g_epoch in self.args.loss_dist_epoch:
-            self.get_loss_dist(client_num=client_num, client=True)
-        
+            # train net2
+            loss2 = self.divide_mix(
+                net=net2,
+                net2=net,
+                label_idx=label_idx1,
+                prob_dict=prob_dict1,
+                unlabel_idx=unlabel_idx1,
+                warm_up=self.args.warmup_epochs,
+                epoch=self.args.g_epoch,
+            )
+
+            self.net1.load_state_dict(net.state_dict())
+            self.net2.load_state_dict(net2.state_dict())
+
+            if self.args.g_epoch in self.args.loss_dist_epoch:
+                self.get_loss_dist(client_num=client_num, client=True)
+
+            self.total_epochs += 1
+            epoch_loss1.append(loss1)
+            epoch_loss2.append(loss2)
+
+        loss1 = sum(epoch_loss1) / len(epoch_loss1)
+        loss2 = sum(epoch_loss2) / len(epoch_loss2)
         return net.state_dict(), loss1, net2.state_dict(), loss2
 
     def divide_mix(self, net, net2, label_idx, prob_dict, unlabel_idx, warm_up, epoch):
@@ -1034,89 +1039,85 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
         unlabeled_train_iter = iter(unlabeled_trainloader)
         num_iter = len(labeled_trainloader)
 
-        epoch_loss = []
-        for ep in range(self.args.local_ep):
-            batch_loss = []
-            for batch_idx, (inputs_x, inputs_x2, labels_x, w_x) in enumerate(labeled_trainloader):
-                try:
-                    inputs_u, inputs_u2 = unlabeled_train_iter.next()
-                except:
-                    unlabeled_train_iter = iter(unlabeled_trainloader)
-                    inputs_u, inputs_u2 = unlabeled_train_iter.next()
+        batch_loss = []
+        for batch_idx, (inputs_x, inputs_x2, labels_x, w_x) in enumerate(labeled_trainloader):
+            try:
+                inputs_u, inputs_u2 = unlabeled_train_iter.next()
+            except:
+                unlabeled_train_iter = iter(unlabeled_trainloader)
+                inputs_u, inputs_u2 = unlabeled_train_iter.next()
 
-                batch_size = inputs_x.size(0)
+            batch_size = inputs_x.size(0)
 
-                # Transform label to one-hot
-                labels_x = torch.zeros(batch_size, self.args.num_classes) \
-                    .scatter_(1, labels_x.view(-1, 1), 1)
-                w_x = w_x.view(-1, 1).type(torch.FloatTensor)
+            # Transform label to one-hot
+            labels_x = torch.zeros(batch_size, self.args.num_classes) \
+                .scatter_(1, labels_x.view(-1, 1), 1)
+            w_x = w_x.view(-1, 1).type(torch.FloatTensor)
 
-                inputs_x = inputs_x.to(self.args.device)
-                inputs_x2 = inputs_x2.to(self.args.device)
-                labels_x = labels_x.to(self.args.device)
-                w_x = w_x.to(self.args.device)
+            inputs_x = inputs_x.to(self.args.device)
+            inputs_x2 = inputs_x2.to(self.args.device)
+            labels_x = labels_x.to(self.args.device)
+            w_x = w_x.to(self.args.device)
 
-                inputs_u = inputs_u.to(self.args.device)
-                inputs_u2 = inputs_u2.to(self.args.device)
+            inputs_u = inputs_u.to(self.args.device)
+            inputs_u2 = inputs_u2.to(self.args.device)
 
-                with torch.no_grad():
-                    # label co-guessing of unlabeled samples
-                    outputs_u11 = net(inputs_u)
-                    outputs_u12 = net(inputs_u2)
-                    outputs_u21 = net2(inputs_u)
-                    outputs_u22 = net2(inputs_u2)
+            with torch.no_grad():
+                # label co-guessing of unlabeled samples
+                outputs_u11 = net(inputs_u)
+                outputs_u12 = net(inputs_u2)
+                outputs_u21 = net2(inputs_u)
+                outputs_u22 = net2(inputs_u2)
 
-                    pu = (torch.softmax(outputs_u11, dim=1) + torch.softmax(outputs_u12, dim=1) +
-                          torch.softmax(outputs_u21, dim=1) + torch.softmax(outputs_u22, dim=1)) / 4
-                    ptu = pu ** (1 / self.args.T)  # temparature sharpening
+                pu = (torch.softmax(outputs_u11, dim=1) + torch.softmax(outputs_u12, dim=1) +
+                      torch.softmax(outputs_u21, dim=1) + torch.softmax(outputs_u22, dim=1)) / 4
+                ptu = pu ** (1 / self.args.T)  # temparature sharpening
 
-                    targets_u = ptu / ptu.sum(dim=1, keepdim=True)  # normalize
-                    targets_u = targets_u.detach()
+                targets_u = ptu / ptu.sum(dim=1, keepdim=True)  # normalize
+                targets_u = targets_u.detach()
 
-                    # label refinement of labeled samples
-                    outputs_x = net(inputs_x)
-                    outputs_x2 = net(inputs_x2)
+                # label refinement of labeled samples
+                outputs_x = net(inputs_x)
+                outputs_x2 = net(inputs_x2)
 
-                    px = (torch.softmax(outputs_x, dim=1) + torch.softmax(outputs_x2, dim=1)) / 2
-                    px = w_x * labels_x + (1 - w_x) * px
-                    ptx = px ** (1 / self.args.T)  # temparature sharpening
+                px = (torch.softmax(outputs_x, dim=1) + torch.softmax(outputs_x2, dim=1)) / 2
+                px = w_x * labels_x + (1 - w_x) * px
+                ptx = px ** (1 / self.args.T)  # temparature sharpening
 
-                    targets_x = ptx / ptx.sum(dim=1, keepdim=True)  # normalize
-                    targets_x = targets_x.detach()
+                targets_x = ptx / ptx.sum(dim=1, keepdim=True)  # normalize
+                targets_x = targets_x.detach()
 
-                # mixmatch
-                all_inputs = torch.cat([inputs_x, inputs_x2, inputs_u, inputs_u2], dim=0)
-                all_targets = torch.cat([targets_x, targets_x, targets_u, targets_u], dim=0)
+            # mixmatch
+            all_inputs = torch.cat([inputs_x, inputs_x2, inputs_u, inputs_u2], dim=0)
+            all_targets = torch.cat([targets_x, targets_x, targets_u, targets_u], dim=0)
 
-                mixed_input, mixed_target = mixup(all_inputs, all_targets, alpha=self.args.mm_alpha)
+            mixed_input, mixed_target = mixup(all_inputs, all_targets, alpha=self.args.mm_alpha)
 
-                logits = net(mixed_input)
-                # compute loss
-                loss = self.semiloss(
-                    outputs_x=logits[:batch_size * 2],
-                    targets_x=mixed_target[:batch_size * 2],
-                    outputs_u=logits[batch_size * 2:],
-                    targets_u=mixed_target[batch_size * 2:],
-                    lambda_u=self.args.lambda_u,
-                    epoch=epoch + batch_idx / num_iter,
-                    warm_up=warm_up,
-                )
-                # regularization
-                prior = torch.ones(self.args.num_classes, device=self.args.device) / self.args.num_classes
-                pred_mean = torch.softmax(logits, dim=1).mean(0)
-                penalty = torch.sum(prior * torch.log(prior / pred_mean))
-                loss += penalty
+            logits = net(mixed_input)
+            # compute loss
+            loss = self.semiloss(
+                outputs_x=logits[:batch_size * 2],
+                targets_x=mixed_target[:batch_size * 2],
+                outputs_u=logits[batch_size * 2:],
+                targets_u=mixed_target[batch_size * 2:],
+                lambda_u=self.args.lambda_u,
+                epoch=epoch + batch_idx / num_iter,
+                warm_up=warm_up,
+            )
+            # regularization
+            prior = torch.ones(self.args.num_classes, device=self.args.device) / self.args.num_classes
+            pred_mean = torch.softmax(logits, dim=1).mean(0)
+            penalty = torch.sum(prior * torch.log(prior / pred_mean))
+            loss += penalty
 
-                # compute gradient and do SGD step
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+            # compute gradient and do SGD step
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-                batch_loss.append(loss.item())
+            batch_loss.append(loss.item())
 
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-
-        return sum(epoch_loss) / len(epoch_loss)
+        return sum(batch_loss) / len(batch_loss)
 
     def update_probabilties_split_data_indices(self, model, loss_history):
         model.eval()
