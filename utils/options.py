@@ -10,7 +10,7 @@ def args_parser():
     parser = argparse.ArgumentParser()
     # label noise method
     parser.add_argument('--method', type=str, default='default', 
-                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix', 'RFL', "fedprox"], 
+                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix', 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors" ], 
                         help='method name')
 
     # federated arguments
@@ -26,7 +26,7 @@ def args_parser():
     parser.add_argument('--schedule', nargs='+', default=[], help='decrease learning rate at these epochs.')
     parser.add_argument('--lr_decay', type=float, default=0.1, help="learning rate decay")
     parser.add_argument('--weight_decay', type=float, default=0, help="sgd weight decay")
-    parser.add_argument('--partition', type=str, help='[label2, labeldir]', default='label2')
+    parser.add_argument('--partition', type=str, help='[shard, labeldir]', default='shard')
     parser.add_argument('--dd_alpha', type=float, default=1.0, help="dirichlet distribution alpha")
     parser.add_argument('--num_shards', type=int, default=200, help="number of shards")
     parser.add_argument('--fed_method', type=str, default='fedavg', choices=['fedavg'],
@@ -105,6 +105,8 @@ def args_parser():
     parser.add_argument('--loss_dist_epoch', nargs='+', default=[], type=int)
     parser.add_argument('--loss_dist_epoch2', nargs='+', default=[100], type=int)
     parser.add_argument('--save_dir2', type=str, default=None, help="for loss dist.")
+    
+    parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
 
     args = parser.parse_args()
     return args
