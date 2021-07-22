@@ -14,7 +14,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from utils import CIFAR10, MNIST, Logger, NoiseLogger
-from utils.sampling import sample_iid, sample_noniid
+from utils.sampling import sample_iid, sample_noniid, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
 from utils.logger import get_loss_dist
@@ -140,8 +140,10 @@ if __name__ == '__main__':
 
     # Sample users (iid / non-iid)
     if args.iid:
+        print('iid')
         dict_users = sample_iid(labels, args.num_users)
-    else:
+    elif args.partition == 'shard':
+        print(args.partition)
         dict_users = sample_noniid(
             labels=labels,
             num_users=args.num_users,
@@ -149,6 +151,14 @@ if __name__ == '__main__':
             partition=args.partition,
             beta=args.dd_alpha
         )
+    elif args.partition == 'dirichlet':
+        print(args.partition)
+        dict_users = sample_dirichlet(
+            labels=labels,
+            num_users=args.num_users,
+            alpha=args.dd_alpha,
+        )
+    # print(dict_users)
 
     tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
     tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)

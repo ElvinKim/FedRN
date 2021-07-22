@@ -26,7 +26,7 @@ def args_parser():
     parser.add_argument('--schedule', nargs='+', default=[], help='decrease learning rate at these epochs.')
     parser.add_argument('--lr_decay', type=float, default=0.1, help="learning rate decay")
     parser.add_argument('--weight_decay', type=float, default=0, help="sgd weight decay")
-    parser.add_argument('--partition', type=str, help='[shard, labeldir]', default='shard')
+    parser.add_argument('--partition', type=str, choices=['shard', 'dirichlet'], default='shard')
     parser.add_argument('--dd_alpha', type=float, default=1.0, help="dirichlet distribution alpha")
     parser.add_argument('--num_shards', type=int, default=200, help="number of shards")
     parser.add_argument('--fed_method', type=str, default='fedavg', choices=['fedavg'],

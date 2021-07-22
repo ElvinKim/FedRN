@@ -99,6 +99,43 @@ def sample_noniid(labels, num_users, num_shards, partition="shard", beta=0.0):
     return dict_users
 
 
+def sample_dirichlet(labels, num_users, alpha=0.0):
+    min_size = 0
+    min_require_size = 10
+    K = 10
+    n_parties = num_users
+
+    N = len(labels)
+    dict_users = {}
+
+    y_train = []
+
+    for i in range(K):
+        y_train += [i] * int(N / K)
+    y_train = np.array(y_train)
+
+    while min_size < min_require_size:
+        idx_batch = [[] for _ in range(n_parties)]
+        for k in range(K):
+            idx_k = np.where(y_train == k)[0]
+
+            np.random.shuffle(idx_k)
+            proportions = np.random.dirichlet(np.repeat(alpha, n_parties))
+            proportions = np.array([p * (len(idx_j) < N / n_parties)
+                                    for p, idx_j in zip(proportions, idx_batch)])
+            proportions = proportions / proportions.sum()
+            proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+
+            idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+            min_size = min([len(idx_j) for idx_j in idx_batch])
+
+    for j in range(n_parties):
+        np.random.shuffle(idx_batch[j])
+        dict_users[j] = idx_batch[j]
+
+    return dict_users
+
+
 if __name__ == '__main__':
     dataset_train = datasets.MNIST('../data/mnist/', train=True, download=True,
                                    transform=transforms.Compose([
