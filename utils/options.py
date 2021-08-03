@@ -10,7 +10,7 @@ def args_parser():
     parser = argparse.ArgumentParser()
     # label noise method
     parser.add_argument('--method', type=str, default='default', 
-                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix', 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors" ], 
+                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix', 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors", "ours" ], 
                         help='method name')
 
     # federated arguments
@@ -103,10 +103,13 @@ def args_parser():
 
     # loss dist. log argument
     parser.add_argument('--loss_dist_epoch', nargs='+', default=[], type=int)
-    parser.add_argument('--loss_dist_epoch2', nargs='+', default=[100], type=int)
+    parser.add_argument('--loss_dist_epoch2', nargs='+', default=[], type=int)
     parser.add_argument('--save_dir2', type=str, default=None, help="for loss dist.")
     
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
+    
+        
+    parser.add_argument('--alpha_', type=float, help='alpha_ for ours', default=0.5)
 
     args = parser.parse_args()
     return args
