@@ -18,6 +18,7 @@ from utils.sampling import sample_iid, sample_noniid, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
 from utils.logger import get_loss_dist
+from utils.cifar import CIFAR100
 
 from models.Update import get_local_update_objects
 from models.Nets import get_model
@@ -131,6 +132,33 @@ if __name__ == '__main__':
         )
         num_classes = 10
 
+    elif args.dataset == 'cifar100':
+        trans_cifar100_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408],
+                                 std=[0.2675, 0.2565, 0.2761])],
+        )
+        trans_cifar100_val = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408],
+                                 std=[0.2675, 0.2565, 0.2761])],
+        )
+        dataset_train = CIFAR100(
+            root='./data/cifar100',
+            download=not nsml.IS_ON_NSML,
+            train=True,
+            transform=trans_cifar100_train,
+        )
+        dataset_test = CIFAR100(
+            root='./data/cifar100',
+            download=not nsml.IS_ON_NSML,
+            train=False,
+            transform=trans_cifar100_val,
+        )
+        num_classes = 100 
+        
     else:
         raise NotImplementedError('Error: unrecognized dataset')
 
