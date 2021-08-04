@@ -17,7 +17,8 @@ class Logger:
         else:
             result_dir = './save/{}/'.format(args.save_dir)
 
-        result_f = '{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
+        result_f = 'alpha[{}]_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
+            args.alpha_,
             args.dataset,
             args.method,
             args.model,
@@ -38,7 +39,8 @@ class Logger:
         if nsml.IS_ON_NSML:
             result_f = 'accuracy'
         else:
-            result_f = 'fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]_TPL[{}]_LAB[{}]'.format(
+            result_f = 'alpha[{}]_fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]_TPL[{}]_LAB[{}]'.format(
+                args.alpha_,
                 args.dataset,
                 args.method,
                 args.model,

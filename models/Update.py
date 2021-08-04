@@ -17,6 +17,11 @@ from .Nets import get_model
 import nsml
 #from utils.logger import get_loss_dist
 
+class NegEntropy(object):
+    def __call__(self,outputs):
+        probs = torch.softmax(outputs, dim=1)
+        return torch.mean(torch.sum(probs.log()*probs, dim=1))
+
 
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs, idx_return=False, real_idx_return=False):
@@ -249,6 +254,7 @@ class BaseLocalUpdate:
         self.last_updated = 0
         
         self.gaussian_noise = gaussian_noise
+        self.conf_penalty = False
         
     def update_label_accuracy(self):
         self.noise_logger.write(
@@ -463,7 +469,7 @@ class BaseLocalUpdate:
         return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), \
                net2.state_dict(), sum(epoch_loss2) / len(epoch_loss2)
 
-    def forward_pass(self, batch, net, net2=None):
+    def forward_pass(self, conf_penalty, batch, net, net2=None):
         if self.idx_return:
             images, labels, _ = batch
 
@@ -479,6 +485,9 @@ class BaseLocalUpdate:
 
         log_probs = net(images)
         loss = self.loss_func(log_probs, labels)
+        if conf_penalty:
+            penalty = NegEntropy()
+            loss += penalty(log_probs) 
         if net2 is None:
             return loss
 
@@ -504,7 +513,6 @@ class LocalUpdateOurs(BaseLocalUpdate):
             dataset=dataset,
             user_idx=user_idx,
             idxs=idxs,
-            
             real_idx_return=True,
             noise_logger=noise_logger,
             gaussian_noise=gaussian_noise
@@ -515,8 +523,10 @@ class LocalUpdateOurs(BaseLocalUpdate):
             batch_size=self.args.local_bs,
             shuffle=False,
         )
+        self.conf_penalty = False
     
-    def split_data_indices(self, model, neighbor1, neighbor2, neighbor1_score, neighbor2_score):
+    def split_data_indices(self, prev, neighbor1, neighbor2, neighbor1_score, neighbor2_score, model):
+        prev.eval()
         neighbor1.eval()
         neighbor2.eval()
         model.eval()
@@ -531,15 +541,17 @@ class LocalUpdateOurs(BaseLocalUpdate):
             for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
                 inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
                 
-                outputs = model(inputs)
+                outputs0 = prev(inputs)
                 outputs1 = neighbor1(inputs)
                 outputs2 = neighbor2(inputs)
+                outputs = model(inputs)
 
-                loss = self.CE(outputs, targets)
+                loss0 = self.CE(outputs0, targets)
                 loss1 = self.CE(outputs1, targets)
                 loss2 = self.CE(outputs2, targets)
+                #loss = self.CE(outputs, targets)
                 
-                losses_lst.append(loss+neighbor1_score*loss1+neighbor2_score*loss2)
+                losses_lst.append(loss0+neighbor1_score*loss1+neighbor2_score*loss2)
                 idx_lst.append(idxs.cpu().numpy())
                 
                 # for expertise calculation
@@ -627,6 +639,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
             weight_decay=self.args.weight_decay,
         )
 
+        #conf_penalty = NegEntropy()
         epoch_loss = []
         for epoch in range(self.args.local_ep):
             self.epoch = epoch
@@ -635,7 +648,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 self.batch_idx = batch_idx
                 net.zero_grad()
 
-                loss = self.forward_pass(batch, net)
+                loss = self.forward_pass(self.conf_penalty, batch, net)
                 loss.backward()
                 optimizer.step()
 
@@ -680,7 +693,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
         neighbor2.load_state_dict(n2)
         
         # fit GMM & get clean data index
-        clean_idx, noisy_idx, loss, expertise = self.split_data_indices(net, neighbor1, neighbor2, neighbor1_score, neighbor2_score)
+        clean_idx, noisy_idx, loss, expertise = self.split_data_indices(self.net1, neighbor1, neighbor2, neighbor1_score, neighbor2_score, net)
         
         self.ldr_train = DataLoader(DatasetSplit(self.dataset, clean_idx, real_idx_return=True),
                                     batch_size=self.args.local_bs,
@@ -703,7 +716,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 self.batch_idx = batch_idx
                 net.zero_grad()
 
-                loss = self.forward_pass(batch, net)
+                loss = self.forward_pass(False, batch, net)
                 loss.backward()
                 optimizer.step()
 
