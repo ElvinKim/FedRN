@@ -389,7 +389,7 @@ if __name__ == '__main__':
     )
     
     expertise_list = [0 for i in range(args.num_users)]
-    inference_list = [torch.zeros(1, 10) for i in range(args.num_users)]
+    inference_list = [torch.zeros(1, args.num_classes) for i in range(args.num_users)]
     sim = torch.nn.CosineSimilarity()
     
     for i in range(args.num_users):
