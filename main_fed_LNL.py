@@ -303,7 +303,7 @@ if __name__ == '__main__':
                 delete_index = int(len(data_indices) * user_noise_rate)
 
                 dict_users[user] = data_indices[delete_index:]
-    
+
     total_noise_cnt = 0
     for user, user_noise_type_rate in enumerate(user_noise_type_rates):
         print("USER {} - {} - {}".format(user, user_noise_type_rate, int(len(dict_users[user]) * user_noise_type_rates[user][1])))
@@ -368,7 +368,6 @@ if __name__ == '__main__':
         all_clients=args.all_clients,
         num_users=args.num_users,
         method=args.fed_method,
-        model=args.model,
         dict_users=dict_users,
     )
 
