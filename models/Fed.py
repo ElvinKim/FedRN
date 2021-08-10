@@ -13,6 +13,11 @@ class LocalModelWeights:
         self.num_users = num_users
         self.method = method
         self.user_data_size = [len(dict_users[i]) for i in range(num_users)]
+        # if the data size for each user is the same,
+        # set all elements in user_data_size as 1
+        if self.user_data_size and \
+                all([self.user_data_size[0] == data_size for data_size in self.user_data_size]):
+            self.user_data_size = [1] * len(self.user_data_size)
         
         w_glob = net_glob.state_dict()
         if self.all_clients:
