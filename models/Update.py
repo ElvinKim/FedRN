@@ -468,7 +468,7 @@ class BaseLocalUpdate:
         return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), \
                net2.state_dict(), sum(epoch_loss2) / len(epoch_loss2)
 
-    def forward_pass(self, conf_penalty, batch, net, net2=None):
+    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
         if self.idx_return:
             images, labels, _ = batch
 
@@ -646,7 +646,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 self.batch_idx = batch_idx
                 net.zero_grad()
 
-                loss = self.forward_pass(self.conf_penalty, batch, net)
+                loss = self.forward_pass(batch, net, conf_penalty=self.conf_penalty)
                 loss.backward()
                 optimizer.step()
 
@@ -715,7 +715,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 self.batch_idx = batch_idx
                 net.zero_grad()
 
-                loss = self.forward_pass(False, batch, net)
+                loss = self.forward_pass(batch, net)
                 loss.backward()
                 optimizer.step()
 
@@ -931,7 +931,7 @@ class LocalUpdateFedProx(BaseLocalUpdate):
         self.glob_net = None
         self.fed_prox_mu = args.init_fed_prox_mu
 
-    def forward_pass(self, batch, net, net2=None):
+    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
         if self.epoch == 0 and self.batch_idx == 0:
             self.glob_net = copy.deepcopy(net)
 
@@ -977,7 +977,7 @@ class LocalUpdateSELFIE(BaseLocalUpdate):
             num_classes=args.num_classes,
         )
 
-    def forward_pass(self, batch, net, net2=None):
+    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
         images, labels, _, ids = batch
         images = images.to(self.args.device)
         labels = labels.to(self.args.device)
@@ -1027,7 +1027,7 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
             data_size=len(idxs),
         )
 
-    def forward_pass(self, batch, net, net2=None):
+    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
         images, labels, _, ids = batch
         ids = ids.numpy()
 
@@ -1088,7 +1088,7 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
 
         self.init_epoch = 10  # only used for coteaching+
 
-    def forward_pass(self, batch, net, net2=None):
+    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
         images, labels, indices, ids = batch
 
         images = images.to(self.args.device)
@@ -1402,7 +1402,7 @@ class LocalUpdateGlobalModel(BaseLocalUpdate):
 
         self.CE = nn.CrossEntropyLoss(reduction='none')
 
-    def forward_pass(self, batch, net, net2=None):
+    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
         images, labels, indices, ids = batch
 
         images = images.to(self.args.device)
