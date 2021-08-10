@@ -45,7 +45,8 @@ def args_parser():
     parser.add_argument('--reproduce', action='store_true', help='reproduce paper code')
 
     # other arguments
-    parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset")
+    parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset",
+                        choices=['mnist', 'cifar10', 'cifar100', 'webvision'])
     parser.add_argument('--iid', action='store_true', help='whether i.i.d or not')
     parser.add_argument('--num_classes', type=int, default=10, help="number of classes")
     parser.add_argument('--num_channels', type=int, default=3, help="number of channels of imges")
@@ -108,7 +109,6 @@ def args_parser():
     
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
     
-        
     parser.add_argument('--alpha_', type=float, help='alpha_ for ours', default=0.5)
 
     args = parser.parse_args()

@@ -108,7 +108,7 @@ if __name__ == '__main__':
         )
         num_classes = 10
 
-    elif args.dataset == 'cifar':
+    elif args.dataset == 'cifar10':
         trans_cifar10_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
@@ -160,8 +160,12 @@ if __name__ == '__main__':
             train=False,
             transform=trans_cifar100_val,
         )
-        num_classes = 100 
-        
+        num_classes = 100
+
+    elif args.dataset == 'webvision':
+        # TODO: Implement dataset for webvision
+        pass
+
     else:
         raise NotImplementedError('Error: unrecognized dataset')
 
@@ -397,7 +401,7 @@ if __name__ == '__main__':
     
     
 #     if args.method in ['global_with_neighbors']:
-#         if "cifar" in args.dataset :
+#         if "cifar10" in args.dataset :
 #             arbitrary_input = torch.randn((1, 3, 32, 32)).to(args.device)
 #         elif "mnist" in args.dataset:
 #             arbitrary_input = torch.randn((1, 1, 28, 28)).to(args.device)
