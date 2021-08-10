@@ -14,7 +14,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from utils import CIFAR10, MNIST, Logger, NoiseLogger
-from utils.sampling import sample_iid, sample_noniid, sample_dirichlet
+from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
 from utils.logger import get_loss_dist
@@ -175,12 +175,10 @@ if __name__ == '__main__':
         dict_users = sample_iid(labels, args.num_users)
     elif args.partition == 'shard':
         print(args.partition)
-        dict_users = sample_noniid(
+        dict_users = sample_noniid_shard(
             labels=labels,
             num_users=args.num_users,
             num_shards=args.num_shards,
-            partition=args.partition,
-            beta=args.dd_alpha
         )
     elif args.partition == 'dirichlet':
         print(args.partition)
@@ -366,7 +364,8 @@ if __name__ == '__main__':
         all_clients=args.all_clients,
         num_users=args.num_users,
         method=args.fed_method,
-        model=args.model
+        model=args.model,
+        dict_users=dict_users,
     )
 
     local_weights = LocalModelWeights(net_glob=net_glob, **fed_args)
