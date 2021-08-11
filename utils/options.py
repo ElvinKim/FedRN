@@ -109,9 +109,9 @@ def args_parser():
     parser.add_argument('--loss_dist_epoch2', nargs='+', default=[], type=int)
     parser.add_argument('--save_dir2', type=str, default=None, help="for loss dist.")
 
+    # For our method
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
-
-    parser.add_argument('--alpha_', type=float, help='alpha_ for ours', default=0.5)
+    parser.add_argument('--w_alpha', type=float, help='weight alpha for our method', default=0.5)
 
     args = parser.parse_args()
     return args
