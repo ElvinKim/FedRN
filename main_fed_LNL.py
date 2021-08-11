@@ -6,19 +6,16 @@
 import copy
 import numpy as np
 import random
-import csv
 
 import torchvision
-from torchvision import transforms
 import torch
 from torch.utils.data import DataLoader
 
-from utils import CIFAR10, MNIST, Logger, NoiseLogger
+from utils import Logger, NoiseLogger, load_dataset
 from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
 from utils.logger import get_loss_dist
-from utils.cifar import CIFAR100
 
 from models.Update import get_local_update_objects
 from models.Nets import get_model
@@ -26,10 +23,8 @@ from models.Fed import LocalModelWeights
 from models.test import test_img
 import nsml
 import time
-from pyemd import emd
+# from pyemd import emd
 
-import matplotlib.pyplot as plt
-import pandas as pd
 
 if __name__ == '__main__':
     start = time.time()
@@ -79,99 +74,9 @@ if __name__ == '__main__':
     ##############################
     # Load dataset and split users
     ##############################
-    if args.dataset == 'mnist':
-        from six.moves import urllib
-
-        opener = urllib.request.build_opener()
-        opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-        urllib.request.install_opener(opener)
-
-        trans_mnist = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-        ])
-        dataset_args = dict(
-            root='./data/mnist',
-            download=True,
-        )
-        dataset_train = MNIST(
-            train=True,
-            transform=trans_mnist,
-            noise_type="clean",
-            **dataset_args,
-        )
-        dataset_test = MNIST(
-            train=False,
-            transform=transforms.ToTensor(),
-            noise_type="clean",
-            **dataset_args,
-        )
-        num_classes = 10
-
-    elif args.dataset == 'cifar10':
-        trans_cifar10_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])],
-        )
-        trans_cifar10_val = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])],
-        )
-        dataset_train = CIFAR10(
-            root='./data/cifar',
-            download=not nsml.IS_ON_NSML,
-            train=True,
-            transform=trans_cifar10_train,
-        )
-        dataset_test = CIFAR10(
-            root='./data/cifar',
-            download=not nsml.IS_ON_NSML,
-            train=False,
-            transform=trans_cifar10_val,
-        )
-        num_classes = 10
-
-    elif args.dataset == 'cifar100':
-        trans_cifar100_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408],
-                                 std=[0.2675, 0.2565, 0.2761])],
-        )
-        trans_cifar100_val = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408],
-                                 std=[0.2675, 0.2565, 0.2761])],
-        )
-        dataset_train = CIFAR100(
-            root='./data/cifar100',
-            download=not nsml.IS_ON_NSML,
-            train=True,
-            transform=trans_cifar100_train,
-        )
-        dataset_test = CIFAR100(
-            root='./data/cifar100',
-            download=not nsml.IS_ON_NSML,
-            train=False,
-            transform=trans_cifar100_val,
-        )
-        num_classes = 100
-
-    elif args.dataset == 'webvision':
-        # TODO: Implement dataset for webvision
-        pass
-
-    else:
-        raise NotImplementedError('Error: unrecognized dataset')
-
+    dataset_train, dataset_test, imagenet_val, args.num_classes = load_dataset(args.dataset)
     labels = np.array(dataset_train.train_labels)
     args.img_size = dataset_train[0][0].shape  # used to get model
-    args.num_classes = num_classes
 
     # Sample users (iid / non-iid)
     if args.iid:
@@ -289,7 +194,7 @@ if __name__ == '__main__':
 
             for d_idx in data_indices[:noise_index]:
                 true_label = dataset_train.train_labels[d_idx]
-                noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=user_noise_type)
+                noisy_label = noisify_label(true_label, num_classes=args.num_classes, noise_type=user_noise_type)
                 dataset_train.train_labels[d_idx] = noisy_label
                 user_noisy_data[user].append(d_idx)
         else:

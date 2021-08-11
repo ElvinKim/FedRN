@@ -3,5 +3,4 @@
 # @python: 3.6
 
 from .logger import Logger, NoiseLogger
-from .cifar import CIFAR10
-from .mnist import MNIST
+from .dataset import load_dataset
