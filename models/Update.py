@@ -674,7 +674,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 self.batch_idx = batch_idx
                 net.zero_grad()
 
-                loss = self.forward_pass(False, batch, net)
+                loss = self.forward_pass(batch, net)
                 loss.backward()
                 optimizer.step()
 
