@@ -20,12 +20,6 @@ import nsml
 # from utils.logger import get_loss_dist
 
 
-class NegEntropy(object):
-    def __call__(self, outputs):
-        probs = torch.softmax(outputs, dim=1)
-        return torch.mean(torch.sum(probs.log() * probs, dim=1))
-
-
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs, idx_return=False, real_idx_return=False):
         self.dataset = dataset
@@ -257,7 +251,6 @@ class BaseLocalUpdate:
         self.last_updated = 0
 
         self.gaussian_noise = gaussian_noise
-        self.conf_penalty = False
 
     def update_label_accuracy(self):
         self.noise_logger.write(
@@ -474,7 +467,7 @@ class BaseLocalUpdate:
         return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), \
                net2.state_dict(), sum(epoch_loss2) / len(epoch_loss2)
 
-    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
+    def forward_pass(self, batch, net, net2=None):
         if self.idx_return:
             images, labels, _ = batch
 
@@ -490,9 +483,7 @@ class BaseLocalUpdate:
 
         log_probs = net(images)
         loss = self.loss_func(log_probs, labels)
-        if conf_penalty:
-            penalty = NegEntropy()
-            loss += penalty(log_probs)
+
         if net2 is None:
             return loss
 
@@ -530,8 +521,6 @@ class LocalUpdateOurs(BaseLocalUpdate):
             num_workers=self.args.num_workers,
             pin_memory=True,
         )
-
-        self.conf_penalty = False
         self.expertise = 0.5
         self.arbitrary_output = torch.rand((1, 10))
 
@@ -626,7 +615,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 self.batch_idx = batch_idx
                 net.zero_grad()
 
-                loss = self.forward_pass(batch, net, conf_penalty=self.conf_penalty)
+                loss = self.forward_pass(batch, net)
                 loss.backward()
                 optimizer.step()
 
@@ -929,7 +918,7 @@ class LocalUpdateFedProx(BaseLocalUpdate):
         self.glob_net = None
         self.fed_prox_mu = args.init_fed_prox_mu
 
-    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
+    def forward_pass(self, batch, net, net2=None):
         if self.epoch == 0 and self.batch_idx == 0:
             self.glob_net = copy.deepcopy(net)
 
@@ -975,7 +964,7 @@ class LocalUpdateSELFIE(BaseLocalUpdate):
             num_classes=args.num_classes,
         )
 
-    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
+    def forward_pass(self, batch, net, net2=None):
         images, labels, _, ids = batch
         images = images.to(self.args.device)
         labels = labels.to(self.args.device)
@@ -1025,7 +1014,7 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
             data_size=len(idxs),
         )
 
-    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
+    def forward_pass(self, batch, net, net2=None):
         images, labels, _, ids = batch
         ids = ids.numpy()
 
@@ -1086,7 +1075,7 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
 
         self.init_epoch = 10  # only used for coteaching+
 
-    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
+    def forward_pass(self, batch, net, net2=None):
         images, labels, indices, ids = batch
 
         images = images.to(self.args.device)
@@ -1406,7 +1395,7 @@ class LocalUpdateGlobalModel(BaseLocalUpdate):
 
         self.CE = nn.CrossEntropyLoss(reduction='none')
 
-    def forward_pass(self, batch, net, net2=None, conf_penalty=None):
+    def forward_pass(self, batch, net, net2=None):
         images, labels, indices, ids = batch
 
         images = images.to(self.args.device)
