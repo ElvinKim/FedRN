@@ -504,8 +504,6 @@ class BaseLocalUpdate:
             self.update_label_accuracy()
 
 
-            
-
 class LocalUpdateOurs(BaseLocalUpdate):
     def __init__(self, args, dataset=None, user_idx=None, idxs=None, noise_logger=None, tmp_true_labels=None, gaussian_noise=None):
         super().__init__(
@@ -518,48 +516,41 @@ class LocalUpdateOurs(BaseLocalUpdate):
             gaussian_noise=gaussian_noise
         )
         self.CE = nn.CrossEntropyLoss(reduction='none')
+        
         self.ldr_eval = DataLoader(
             DatasetSplit(dataset, idxs, real_idx_return=True),
             batch_size=self.args.local_bs,
-            shuffle=False,
+            shuffle=True,
         )
+        
         self.conf_penalty = False
+        self.expertise = 0.5
+        self.arbitrary_output = torch.rand((1, 10))
     
-    def split_data_indices(self, prev, neighbor1, neighbor2, neighbor1_score, neighbor2_score, model):
+    def split_data_indices(self, prev, neighbor_lst, neighbor_score_lst):
         prev.eval()
-        neighbor1.eval()
-        neighbor2.eval()
-        model.eval()
+        
+        for n_net in neighbor_lst:
+            n_net.eval()
         
         losses_lst = []
         idx_lst = []
-        correct = 0
-        n_total = len(self.ldr_eval.dataset)
         
         # get weighted sum of losses
         with torch.no_grad():
             for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
                 inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
                 
-                outputs0 = prev(inputs)
-                outputs1 = neighbor1(inputs)
-                outputs2 = neighbor2(inputs)
-                outputs = model(inputs)
-
-                loss0 = self.CE(outputs0, targets)
-                loss1 = self.CE(outputs1, targets)
-                loss2 = self.CE(outputs2, targets)
-                #loss = self.CE(outputs, targets)
+                outputs = prev(inputs)
+                loss = self.CE(outputs, targets)
                 
-                losses_lst.append(loss0+neighbor1_score*loss1+neighbor2_score*loss2)
+                for n_net, score in zip(neighbor_lst, neighbor_score_lst):
+                    n_outputs = n_net(inputs)
+                    loss += self.CE(n_outputs, targets) * score
+                
+                losses_lst.append(loss)
                 idx_lst.append(idxs.cpu().numpy())
                 
-                # for expertise calculation
-                y_pred = outputs.data.max(1, keepdim=True)[1]
-                correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
-                
-            expertise = correct / n_total
-            
         indices = np.concatenate(idx_lst)
         losses = torch.cat(losses_lst).cpu().numpy()
         losses = (losses - losses.min()) / (losses.max() - losses.min())
@@ -581,55 +572,36 @@ class LocalUpdateOurs(BaseLocalUpdate):
         noisy_idx = (1 - pred).nonzero()[0]
         noisy_idx = indices[noisy_idx]
 
-        return clean_idx, noisy_idx, sum(losses) / len(losses), expertise
+        return clean_idx, noisy_idx
     
-    def finetune(self, n1, n2):
-        n1.train()
-        n2.train()
-        
+    def finetune(self, neighbor_lst):
         optimizer_args = dict(
             lr=self.args.lr,
             momentum=self.args.momentum,
             weight_decay=self.args.weight_decay,
         )
         
-        optimizer1 = torch.optim.SGD(n1.parameters(), **optimizer_args)
-        optimizer2 = torch.optim.SGD(n2.parameters(), **optimizer_args)
+        n_opt_lst = []
+        
+        for n_net in neighbor_lst:
+            n_net.train()
+            n_opt_lst.append(torch.optim.SGD(n_net.parameters(), **optimizer_args))
         
         for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
             inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
 
-            n1.zero_grad()
-            n2.zero_grad()
+            for n_net, n_opt in zip(neighbor_lst, n_opt_lst):
+                n_net.zero_grad()
  
-            outputs1 = n1(inputs)
-            outputs2 = n2(inputs)
-
-            loss1 = self.loss_func(outputs1, targets)
-            loss2 = self.loss_func(outputs2, targets)
-
-            loss1.backward()
-            loss2.backward()
+                outputs = n_net(inputs)
+                loss = self.loss_func(outputs, targets)
+                loss.backward()
  
-            optimizer1.step()
-            optimizer2.step()
+                n_opt.step()
     
-        return n1.state_dict(), n2.state_dict()
+        return neighbor_lst
     
     def train_phase1(self, client_num, net):
-        net.eval()
-        correct = 0
-        n_total = len(self.ldr_eval.dataset)
-        
-        # get expertise of the client
-        with torch.no_grad():
-            for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
-                inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
-                outputs = net(inputs)
-                y_pred = outputs.data.max(1, keepdim=True)[1]
-                correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
-            expertise = correct / n_total
-        
         # local training
         net.train()
         optimizer = torch.optim.SGD(
@@ -639,7 +611,6 @@ class LocalUpdateOurs(BaseLocalUpdate):
             weight_decay=self.args.weight_decay,
         )
 
-        #conf_penalty = NegEntropy()
         epoch_loss = []
         for epoch in range(self.args.local_ep):
             self.epoch = epoch
@@ -651,10 +622,6 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 loss = self.forward_pass(self.conf_penalty, batch, net)
                 loss.backward()
                 optimizer.step()
-
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print(f"Update Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
-                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
 
                 batch_loss.append(loss.item())
                 self.on_batch_end()
@@ -670,30 +637,31 @@ class LocalUpdateOurs(BaseLocalUpdate):
         if self.args.g_epoch in self.args.loss_dist_epoch:
             self.get_loss_dist(client_num=client_num, client=True)
             
+        net.eval()
+        correct = 0
+        n_total = len(self.ldr_eval.dataset)
+        
+        # get expertise of the client
+        with torch.no_grad():
+            for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
+                inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
+                outputs = self.net1(inputs)
+                y_pred = outputs.data.max(1, keepdim=True)[1]
+                correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
+            expertise = correct / n_total
+            
+        self.expertise = expertise
+        
         # arbitrary gaussian input inference
-        inference = net(self.gaussian_noise.to(self.args.device))
+        self.arbitrary_output = net(self.gaussian_noise.to(self.args.device))
 
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss), expertise, inference
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
     
-    def train_phase2(self, client_num, net, neighbor1, neighbor2, neighbor1_score, neighbor2_score):
-        '''
-        global_clean_idx, global_noisy_idx, global_loss, expertise = self.split_data_indices(net)
-        neighbor1_clean_idx, neighbor1_noisy_idx, neighbor1_loss, acc1 = self.split_data_indices(neighbor1)
-        neighbor2_clean_idx, neighbor2_noisy_idx, neighbor2_loss, acc2 = self.split_data_indices(neighbor2)
-        
-        final_clean = list((set(global_clean_idx) & (set(neighbor1_clean_idx) | set(neighbor2_clean_idx))) | (set(neighbor1_clean_idx) & set(neighbor2_clean_idx))) 
-        
-        if len(final_clean) == 0:
-            final_clean = list((set(neighbor1_clean_idx) | set(neighbor2_clean_idx)) | (set(neighbor1_clean_idx) & set(neighbor2_clean_idx)))
-            print("==================EMPTY SET===================\n")
-        '''
-        # neighbor fine-tuning
-        n1, n2 = self.finetune(neighbor1, neighbor2)
-        neighbor1.load_state_dict(n1)
-        neighbor2.load_state_dict(n2)
+    def train_phase2(self, client_num, net, neighbor_lst, neighbor_score_lst):
+        neigbor_lst = self.finetune(neighbor_lst)
         
         # fit GMM & get clean data index
-        clean_idx, noisy_idx, loss, expertise = self.split_data_indices(self.net1, neighbor1, neighbor2, neighbor1_score, neighbor2_score, net)
+        clean_idx, noisy_idx = self.split_data_indices(self.net1, neighbor_lst, neighbor_score_lst)
         
         self.ldr_train = DataLoader(DatasetSplit(self.dataset, clean_idx, real_idx_return=True),
                                     batch_size=self.args.local_bs,
@@ -720,10 +688,6 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 loss.backward()
                 optimizer.step()
 
-                if self.args.verbose and batch_idx % 10 == 0:
-                    print(f"Update Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
-                          f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
-
                 batch_loss.append(loss.item())
                 self.on_batch_end()
 
@@ -738,10 +702,25 @@ class LocalUpdateOurs(BaseLocalUpdate):
         if self.args.g_epoch in self.args.loss_dist_epoch:
             self.get_loss_dist(client_num=client_num, client=True)
             
+        net.eval()
+        correct = 0
+        n_total = len(self.ldr_eval.dataset)
+        
+        # get expertise of the client
+        with torch.no_grad():
+            for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
+                inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
+                outputs = self.net1(inputs)
+                y_pred = outputs.data.max(1, keepdim=True)[1]
+                correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
+            expertise = correct / n_total
+            
+        self.expertise = expertise
+        
         # arbitrary gaussian input inference
-        inference = net(self.gaussian_noise.to(self.args.device))
+        self.arbitrary_output = net(self.gaussian_noise.to(self.args.device))
 
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss), expertise, inference
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
         
 
 class LocalUpdateRFL(BaseLocalUpdate):

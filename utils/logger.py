@@ -18,7 +18,7 @@ class Logger:
             result_dir = './save/{}/'.format(args.save_dir)
 
         result_f = 'alpha[{}]_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
-            args.alpha_,
+            args.w_alpha,
             args.dataset,
             args.method,
             args.model,
@@ -40,7 +40,7 @@ class Logger:
             result_f = 'accuracy'
         else:
             result_f = 'alpha[{}]_fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]_TPL[{}]_LAB[{}]'.format(
-                args.alpha_,
+                args.w_alpha,
                 args.dataset,
                 args.method,
                 args.model,
