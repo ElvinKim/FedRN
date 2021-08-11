@@ -389,7 +389,7 @@ if __name__ == '__main__':
                             sim_list.append(sim(i, inference_list[idx]))
                         for index, (e, s) in enumerate(zip(expertise_list, sim_list)):
                             if index != idx:
-                                score = args.alpha_ * e + (1 - args.alpha_) * s
+                                score = args.w_alpha * e + (1 - args.w_alpha) * s
                                 score_list.append([score, index])
                         score_list.sort(key=lambda x: x[0], reverse=True)
                         neighbor1_score, neighbor2_score = score_list[0][0], score_list[1][0]
