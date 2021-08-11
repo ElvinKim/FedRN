@@ -218,8 +218,13 @@ if __name__ == '__main__':
     print("Global Noise Rate : {}".format(total_noise_cnt / 50000))
 
     # for logging purposes
-    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
-    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)
+    logging_args = dict(
+        batch_size=args.bs,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, **logging_args)
+    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, **logging_args)
 
     ##############################
     # Build model

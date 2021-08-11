@@ -237,6 +237,8 @@ class BaseLocalUpdate:
             DatasetSplit(dataset, idxs, idx_return=idx_return, real_idx_return=real_idx_return),
             batch_size=self.args.local_bs,
             shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
         self.total_epochs = 0
         self.epoch = 0
@@ -334,7 +336,9 @@ class BaseLocalUpdate:
 
         ce = nn.CrossEntropyLoss(reduce=False)
         with torch.no_grad():
-            for batch_idx, batch in enumerate(DataLoader(dataset, batch_size=1, shuffle=False)):
+            for batch_idx, batch in enumerate(
+                    DataLoader(dataset, batch_size=1, shuffle=False, num_workers=self.args.num_workers, pin_memory=True)
+            ):
                 if client:
                     images, labels, _, real_idx = batch
                 else:
@@ -520,6 +524,8 @@ class LocalUpdateOurs(BaseLocalUpdate):
             DatasetSplit(dataset, idxs, real_idx_return=True),
             batch_size=self.args.local_bs,
             shuffle=False,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
         self.conf_penalty = False
 
@@ -696,7 +702,10 @@ class LocalUpdateOurs(BaseLocalUpdate):
 
         self.ldr_train = DataLoader(DatasetSplit(self.dataset, clean_idx, real_idx_return=True),
                                     batch_size=self.args.local_bs,
-                                    shuffle=True)
+                                    shuffle=True,
+                                    num_workers=self.args.num_workers,
+                                    pin_memory=True,
+                                    )
 
         # local training
         net.train()
@@ -759,8 +768,16 @@ class LocalUpdateRFL(BaseLocalUpdate):
             DatasetSplitRFL(dataset, idxs),
             batch_size=self.args.local_bs,
             shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
-        self.ldr_train_tmp = DataLoader(DatasetSplitRFL(dataset, idxs), batch_size=1, shuffle=True)
+        self.ldr_train_tmp = DataLoader(
+            DatasetSplitRFL(dataset, idxs),
+            batch_size=1,
+            shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
+        )
         self.tmp_true_labels = tmp_true_labels
 
     def RFLloss(self, logit, labels, feature, f_k, mask, small_loss_idxs, lambda_cen, lambda_e, new_labels):
@@ -1195,6 +1212,8 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             DatasetSplit(dataset, idxs, real_idx_return=True),
             batch_size=self.args.local_bs,
             shuffle=False,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
 
     def train(self, client_num, net, net2=None):
@@ -1261,11 +1280,15 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             PairProbDataset(self.dataset, label_idx, prob_dict),
             batch_size=self.args.local_bs,
             shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
         unlabeled_trainloader = DataLoader(
             PairDataset(self.dataset, unlabel_idx, label_return=False),
             batch_size=self.args.local_bs,
             shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
         unlabeled_train_iter = iter(unlabeled_trainloader)
         num_iter = len(labeled_trainloader)
@@ -1448,6 +1471,8 @@ class LocalUpdateGlobalGMMBase(BaseLocalUpdate):
             DatasetSplit(dataset, idxs, real_idx_return=True),
             batch_size=self.args.local_bs,
             shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
 
     def train(self, client_num, net):
@@ -1472,6 +1497,8 @@ class LocalUpdateGlobalGMMBase(BaseLocalUpdate):
                     DatasetSplit(self.dataset, label_idx, real_idx_return=True),
                     batch_size=self.args.local_bs,
                     shuffle=True,
+                    num_workers=self.args.num_workers,
+                    pin_memory=True,
                 )
 
             self.epoch = epoch
@@ -1553,6 +1580,8 @@ class LocalUpdateGlobalWithNeighbors(LocalUpdateGlobalGMMBase):
             DatasetSplit(dataset, idxs, real_idx_return=True),
             batch_size=self.args.local_bs,
             shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
         )
 
     def train(self, client_num, net, neighbor_lst):
@@ -1599,6 +1628,8 @@ class LocalUpdateGlobalWithNeighbors(LocalUpdateGlobalGMMBase):
                 DatasetSplit(self.dataset, self.idxs, real_idx_return=True),
                 batch_size=self.args.local_bs,
                 shuffle=True,
+                num_workers=self.args.num_workers,
+                pin_memory=True,
             )
 
             for batch_idx, batch in enumerate(temp_data_loader):
@@ -1731,6 +1762,8 @@ class LocalUpdateGlobalWithNeighbors(LocalUpdateGlobalGMMBase):
                     DatasetSplit(self.dataset, label_idx, real_idx_return=True),
                     batch_size=self.args.local_bs,
                     shuffle=True,
+                    num_workers=self.args.num_workers,
+                    pin_memory=True,
                 )
 
             self.epoch = epoch
