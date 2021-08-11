@@ -17,12 +17,6 @@ from .Nets import get_model
 import nsml
 #from utils.logger import get_loss_dist
 
-class NegEntropy(object):
-    def __call__(self,outputs):
-        probs = torch.softmax(outputs, dim=1)
-        return torch.mean(torch.sum(probs.log()*probs, dim=1))
-
-
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs, idx_return=False, real_idx_return=False):
         self.dataset = dataset
@@ -254,7 +248,6 @@ class BaseLocalUpdate:
         self.last_updated = 0
         
         self.gaussian_noise = gaussian_noise
-        self.conf_penalty = False
         
     def update_label_accuracy(self):
         self.noise_logger.write(
@@ -469,7 +462,7 @@ class BaseLocalUpdate:
         return net1.state_dict(), sum(epoch_loss1) / len(epoch_loss1), \
                net2.state_dict(), sum(epoch_loss2) / len(epoch_loss2)
 
-    def forward_pass(self, conf_penalty, batch, net, net2=None):
+    def forward_pass(self, batch, net, net2=None):
         if self.idx_return:
             images, labels, _ = batch
 
@@ -485,9 +478,7 @@ class BaseLocalUpdate:
 
         log_probs = net(images)
         loss = self.loss_func(log_probs, labels)
-        if conf_penalty:
-            penalty = NegEntropy()
-            loss += penalty(log_probs) 
+
         if net2 is None:
             return loss
 
@@ -522,8 +513,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
             batch_size=self.args.local_bs,
             shuffle=True,
         )
-        
-        self.conf_penalty = False
+     
         self.expertise = 0.5
         self.arbitrary_output = torch.rand((1, 10))
     
@@ -619,7 +609,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 self.batch_idx = batch_idx
                 net.zero_grad()
 
-                loss = self.forward_pass(self.conf_penalty, batch, net)
+                loss = self.forward_pass(batch, net)
                 loss.backward()
                 optimizer.step()
 
