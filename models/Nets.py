@@ -11,7 +11,7 @@ def get_model(args):
     if args.model == 'cnn9':
         model = CNN(input_channel=args.num_channels, n_outputs=args.num_classes, feature_return=args.feature_return)
  
-    elif args.model == 'cnn' and args.dataset == 'cifar':
+    elif args.model == 'cnn' and args.dataset == 'cifar10':
         model = CNNCifar(num_classes=args.num_classes)
 
     elif args.model == 'cnn' and args.dataset == 'mnist':
