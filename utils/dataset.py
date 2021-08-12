@@ -102,21 +102,21 @@ def load_dataset(dataset):
 
     elif dataset == 'webvision':
         transform_train = transforms.Compose([
-            transforms.Resize(320),
-            transforms.RandomResizedCrop(299),
+            transforms.Resize(33),
+            transforms.RandomResizedCrop(32),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
         transform_val = transforms.Compose([
-            transforms.Resize(320),
-            transforms.CenterCrop(299),
+            transforms.Resize(33),
+            transforms.CenterCrop(32),
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
         transform_imagenet = transforms.Compose([
-            transforms.Resize(320),
-            transforms.CenterCrop(299),
+            transforms.Resize(33),
+            transforms.CenterCrop(32),
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])

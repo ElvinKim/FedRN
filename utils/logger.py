@@ -68,25 +68,45 @@ class Logger:
 
         self.f = open(result_dir + result_f + ".csv", 'w', newline='')
         self.wr = csv.writer(self.f)
+        self.use_imagenetval = args.dataset == 'webvision'
 
         if self.use_2_models:
-            self.wr.writerow(['epoch', 'train_acc', 'train_loss', 'train_acc2', 'train_loss2',
-                              'test_acc', 'test_loss', 'test_acc2', 'test_loss2'])
+            columns = ['epoch', 'train_acc', 'train_loss', 'train_acc2', 'train_loss2',
+                       'test_acc', 'test_loss', 'test_acc2', 'test_loss2']
         else:
-            self.wr.writerow(['epoch', 'train_acc', 'train_loss', 'test_acc', 'test_loss'])
+            columns = ['epoch', 'train_acc', 'train_loss', 'test_acc', 'test_loss']
+
+        if self.use_imagenetval:
+            if self.use_2_models:
+                columns.extend(['test_imagenetacc', 'test_imagenetloss', 'test_imagenetacc2', 'test_imagenetloss2'])
+            else:
+                columns.extend(['test_imagenetacc', 'test_imagenetloss'])
+
+        self.wr.writerow(columns)
 
         # Option Save
         with open(result_dir + result_f + ".txt", 'w') as option_f:
             option_f.write(str(args))
 
     def write(self, epoch, train_acc, train_loss, test_acc, test_loss,
-              train_acc2=None, train_loss2=None, test_acc2=None, test_loss2=None):
+              train_acc2=None, train_loss2=None, test_acc2=None, test_loss2=None,
+              test_imagenetacc=None, test_imagenetloss=None,
+              test_imagenetacc2=None, test_imagenetloss2=None,
+              ):
 
         if self.use_2_models:
-            self.wr.writerow([epoch, train_acc, train_loss, train_acc2, train_loss2,
-                              test_acc, test_loss, test_acc2, test_loss2])
+            row = [epoch, train_acc, train_loss, train_acc2, train_loss2,
+                   test_acc, test_loss, test_acc2, test_loss2]
         else:
-            self.wr.writerow([epoch, train_acc, train_loss, test_acc, test_loss])
+            row = [epoch, train_acc, train_loss, test_acc, test_loss]
+
+        if self.use_imagenetval:
+            if self.use_2_models:
+                row.extend([test_imagenetacc, test_imagenetloss, test_imagenetacc2, test_imagenetloss2])
+            else:
+                row.extend([test_imagenetacc, test_imagenetloss])
+
+        self.wr.writerow(row)
 
     def close(self):
         self.f.close()

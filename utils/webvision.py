@@ -1,6 +1,6 @@
 import argparse
 from PIL import Image
-
+import os
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
@@ -52,20 +52,22 @@ class WebvisionDataset(Dataset):
         else:
             with open(self.root + 'info/train_filelist_google.txt') as f:
                 lines = f.readlines()
-            train_imgs = []
 
-            self.train_labels = {}
+            self.train_imgs = []
+            self.train_labels = []
+            self.train_img_2_label = {}
+
             self.stat['raw_dist'] = {}
             for line in lines:
                 img, target = line.split()
                 target = int(target)
                 if target < num_class:
-                    train_imgs.append(img)
-                    self.train_labels[img] = target
+                    self.train_imgs.append(img)
+                    self.train_labels.append(target)
+                    self.train_img_2_label[img] = target
 
                     self.stat['dist'][target] += 1
 
-            self.train_imgs = train_imgs
             self.stat['dist'] = dict(sorted(self.stat['dist'].items(),
                                             key=lambda item: item[1],
                                             reverse=True))
@@ -76,7 +78,7 @@ class WebvisionDataset(Dataset):
     def __getitem__(self, index):
         if self.mode == 'train':
             img_path = self.train_imgs[index]
-            target = self.train_labels[img_path]
+            target = self.train_labels[index]
             image = Image.open(self.root + img_path).convert('RGB')
             img = self.transform(image)
             return img, target
@@ -173,7 +175,7 @@ class webvision_dataloader:
 if __name__ == "__main__":
     # !!!! NSML command example !!!!
     # nsml run -d [data] -m [tag] -e [main file] --gpu-model [gpu name] -g [# gpu] --cpus [# cpu] --memory [memory size] --shm-size [shared memory size]
-    # => nsml run -d WebVisionV1 -m 'WebVisionV1 Read Testing' -e main.py --gpu-model P40 -g 1 --cpus 4 --memory 10G --shm-size 5G
+    # => nsml run -d WebVision-V1-2 -m 'WebVisionV1 Read Testing' -e utils/webvision.py --gpu-model P40 -g 1 --cpus 4 --memory 10G --shm-size 5G
 
     parser = argparse.ArgumentParser(description='PyTorch WebVision Parallel Training')
 
