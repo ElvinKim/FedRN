@@ -6,19 +6,16 @@
 import copy
 import numpy as np
 import random
-import csv
 
 import torchvision
-from torchvision import transforms
 import torch
 from torch.utils.data import DataLoader
 
-from utils import CIFAR10, MNIST, Logger, NoiseLogger
-from utils.sampling import sample_iid, sample_noniid, sample_dirichlet
+from utils import Logger, NoiseLogger, load_dataset
+from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
 from utils.logger import get_loss_dist
-from utils.cifar import CIFAR100
 
 from models.Update import get_local_update_objects
 from models.Nets import get_model
@@ -26,10 +23,9 @@ from models.Fed import LocalModelWeights
 from models.test import test_img
 import nsml
 import time
-from pyemd import emd
 
-import matplotlib.pyplot as plt
-import pandas as pd
+# from pyemd import emd
+
 
 if __name__ == '__main__':
     start = time.time()
@@ -72,102 +68,18 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = True
     np.random.seed(args.seed)
-    
+
     # Arbitrary gaussian noise
     gaussian_noise = torch.randn(1, 3, 32, 32)
 
     ##############################
     # Load dataset and split users
     ##############################
-    if args.dataset == 'mnist':
-        from six.moves import urllib
-
-        opener = urllib.request.build_opener()
-        opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-        urllib.request.install_opener(opener)
-
-        trans_mnist = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-        ])
-        dataset_args = dict(
-            root='./data/mnist',
-            download=True,
-        )
-        dataset_train = MNIST(
-            train=True,
-            transform=trans_mnist,
-            noise_type="clean",
-            **dataset_args,
-        )
-        dataset_test = MNIST(
-            train=False,
-            transform=transforms.ToTensor(),
-            noise_type="clean",
-            **dataset_args,
-        )
-        num_classes = 10
-
-    elif args.dataset == 'cifar':
-        trans_cifar10_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])],
-        )
-        trans_cifar10_val = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])],
-        )
-        dataset_train = CIFAR10(
-            root='./data/cifar',
-            download=not nsml.IS_ON_NSML,
-            train=True,
-            transform=trans_cifar10_train,
-        )
-        dataset_test = CIFAR10(
-            root='./data/cifar',
-            download=not nsml.IS_ON_NSML,
-            train=False,
-            transform=trans_cifar10_val,
-        )
-        num_classes = 10
-
-    elif args.dataset == 'cifar100':
-        trans_cifar100_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408],
-                                 std=[0.2675, 0.2565, 0.2761])],
-        )
-        trans_cifar100_val = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408],
-                                 std=[0.2675, 0.2565, 0.2761])],
-        )
-        dataset_train = CIFAR100(
-            root='./data/cifar100',
-            download=not nsml.IS_ON_NSML,
-            train=True,
-            transform=trans_cifar100_train,
-        )
-        dataset_test = CIFAR100(
-            root='./data/cifar100',
-            download=not nsml.IS_ON_NSML,
-            train=False,
-            transform=trans_cifar100_val,
-        )
-        num_classes = 100 
-        
-    else:
-        raise NotImplementedError('Error: unrecognized dataset')
-
+    dataset_train, dataset_test, imagenet_val, args.num_classes = load_dataset(args.dataset)
     labels = np.array(dataset_train.train_labels)
-    args.img_size = dataset_train[0][0].shape  # used to get model
-    args.num_classes = num_classes
+    img_size = dataset_train[0][0].shape  # used to get model
+    args.img_size = int(img_size[1])
+    print(img_size)
 
     # Sample users (iid / non-iid)
     if args.iid:
@@ -175,12 +87,10 @@ if __name__ == '__main__':
         dict_users = sample_iid(labels, args.num_users)
     elif args.partition == 'shard':
         print(args.partition)
-        dict_users = sample_noniid(
+        dict_users = sample_noniid_shard(
             labels=labels,
             num_users=args.num_users,
             num_shards=args.num_shards,
-            partition=args.partition,
-            beta=args.dd_alpha
         )
     elif args.partition == 'dirichlet':
         print(args.partition)
@@ -193,7 +103,7 @@ if __name__ == '__main__':
 
     tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
     tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)
-    
+
     '''
     ##############################
     # Get Smart Neighbors
@@ -287,7 +197,7 @@ if __name__ == '__main__':
 
             for d_idx in data_indices[:noise_index]:
                 true_label = dataset_train.train_labels[d_idx]
-                noisy_label = noisify_label(true_label, num_classes=num_classes, noise_type=user_noise_type)
+                noisy_label = noisify_label(true_label, num_classes=args.num_classes, noise_type=user_noise_type)
                 dataset_train.train_labels[d_idx] = noisy_label
                 user_noisy_data[user].append(d_idx)
         else:
@@ -301,17 +211,25 @@ if __name__ == '__main__':
                 delete_index = int(len(data_indices) * user_noise_rate)
 
                 dict_users[user] = data_indices[delete_index:]
-    
+
     total_noise_cnt = 0
     for user, user_noise_type_rate in enumerate(user_noise_type_rates):
-        print("USER {} - {} - {}".format(user, user_noise_type_rate, int(len(dict_users[user]) * user_noise_type_rates[user][1])))
+        print("USER {} - {} - {}".format(user, user_noise_type_rate,
+                                         int(len(dict_users[user]) * user_noise_type_rates[user][1])))
         total_noise_cnt += int(len(dict_users[user]) * user_noise_type_rates[user][1])
-    
+
     print("Global Noise Rate : {}".format(total_noise_cnt / 50000))
 
     # for logging purposes
-    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.bs)
-    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.bs)
+    logging_args = dict(
+        batch_size=args.bs,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    log_train_data_loader = torch.utils.data.DataLoader(dataset_train, **logging_args)
+    log_test_data_loader = torch.utils.data.DataLoader(dataset_test, **logging_args)
+    if imagenet_val is not None:
+        log_imagenet_val_data_loader = torch.utils.data.DataLoader(imagenet_val, **logging_args)
 
     ##############################
     # Build model
@@ -319,10 +237,10 @@ if __name__ == '__main__':
     net_glob = get_model(args)
     net_glob = net_glob.to(args.device)
     print(net_glob)
-    
+
     if args.method in ['global_with_neighbors']:
         temp_net = copy.deepcopy(net_glob)
-        
+
     if args.send_2_models:
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
@@ -366,7 +284,7 @@ if __name__ == '__main__':
         all_clients=args.all_clients,
         num_users=args.num_users,
         method=args.fed_method,
-        model=args.model
+        dict_users=dict_users,
     )
 
     local_weights = LocalModelWeights(net_glob=net_glob, **fed_args)
@@ -385,17 +303,17 @@ if __name__ == '__main__':
         net_local_lst=net_local_lst,
         noise_logger=noise_logger,
         tmp_true_labels=tmp_true_labels,
-        gaussian_noise=gaussian_noise
+        gaussian_noise=gaussian_noise,
     )
-    
+
     expertise_list = [0 for i in range(args.num_users)]
     inference_list = [torch.zeros(1, args.num_classes) for i in range(args.num_users)]
     cos_sim = torch.nn.CosineSimilarity()
-    
+
     for i in range(args.num_users):
         local = local_update_objects[i]
         local.weight = copy.deepcopy(net_glob.state_dict())
-    
+
     for epoch in range(args.epochs):
         if (epoch + 1) in args.schedule:
             print("Learning Rate Decay Epoch {}".format(epoch + 1))
@@ -412,21 +330,24 @@ if __name__ == '__main__':
 
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-        
-        #total_data_cnt = sum([len(dict_users[idx]) for idx in idxs_users])
-        
+
+        # total_data_cnt = sum([len(dict_users[idx]) for idx in idxs_users])
+
         # Local Update
         for client_num, idx in enumerate(idxs_users):
             local = local_update_objects[idx]
             local.args = args
-            #local.args.local_bs = int(len(dict_users[idx]) / 10)
+            # local.args.local_bs = int(len(dict_users[idx]) / 10)
 
             if args.send_2_models:
-                w, loss, w2, loss2 = local.train(client_num, copy.deepcopy(net_glob).to(args.device),
-                                                 copy.deepcopy(net_glob2).to(args.device))
-                local_weights.update(idx, w, len(dict_users[idx]))
+                w, loss, w2, loss2 = local.train(
+                    client_num,
+                    copy.deepcopy(net_glob).to(args.device),
+                    copy.deepcopy(net_glob2).to(args.device),
+                )
+                local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
-                local_weights2.update(idx, w2, len(dict_users[idx]))
+                local_weights2.update(idx, w2)
                 local_losses2.append(copy.deepcopy(loss2))
 
             else:
@@ -434,65 +355,67 @@ if __name__ == '__main__':
                     w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device),
                                                copy.deepcopy(f_G).to(args.device), client_num)
                     f_locals.append(f_k)
-                elif args.method ==  "global_with_neighbors":
+                elif args.method == "global_with_neighbors":
                     neighbor_local = None
-                    
+
                     if epoch > args.warmup_epochs:
                         neighbor_local = []
-                        
+
                         for n_idx in neighbor_dict[idx]:
                             temp_net.load_state_dict(local_update_objects[n_idx].weight)
                             neighbor_local.append(copy.deepcopy(temp_net))
-                        
+
                     w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device), neighbor_local)
                     local.weight = copy.deepcopy(w)
-                        
+
                 elif args.method == "ours":
                     if epoch < args.warmup_epochs:
                         w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
                     else:
                         score_list = []
-                        sim_list = [cos_sim(local_update_objects[idx].arbitrary_output.to(args.device), local_update_objects[n_i].arbitrary_output.to(args.device)) for n_i in range(args.num_users)]
+                        sim_list = [cos_sim(local_update_objects[idx].arbitrary_output.to(args.device),
+                                            local_update_objects[n_i].arbitrary_output.to(args.device)) for n_i in
+                                    range(args.num_users)]
                         exp_list = [local_update_objects[n_i].expertise for n_i in range(args.num_users)]
-                        
+
                         for index, (e, s) in enumerate(zip(exp_list, sim_list)):
                             if index != idx:
-                                score = args.w_alpha * e + (1-args.w_alpha) * s
+                                score = args.w_alpha * e + (1 - args.w_alpha) * s
                                 score_list.append([score, index])
-                                
+
                         score_list.sort(key=lambda x: x[0], reverse=True)
-                        
+
                         neighbor_lst = []
                         neighbor_score_lst = []
-                        
+
                         for n_index in range(args.num_neighbors):
                             neighbor_idx = score_list[n_index][1]
                             neighbor_net = copy.deepcopy(local_update_objects[neighbor_idx].net1)
                             neighbor_lst.append(neighbor_net)
-                            
+
                             neighbor_score_lst.append(score_list[n_index][0])
-                            
-                        w, loss = local.train_phase2(client_num, 
-                                                     copy.deepcopy(net_glob).to(args.device), 
+
+                        w, loss = local.train_phase2(client_num,
+                                                     copy.deepcopy(net_glob).to(args.device),
                                                      neighbor_lst,
                                                      neighbor_score_lst)
-                
+
                 else:
                     w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device))
-                    
-                #local_weights.update(idx, w, len(dict_users[idx]))
+
+                # local_weights.update(idx, w, len(dict_users[idx]))
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
-        
+
         if epoch in args.loss_dist_epoch2:
             for client_num in range(args.num_users):
                 local_update_objects[client_num].get_loss_dist(client_num=client_num, client=True, all_client=True)
-        
+
         w_glob = local_weights.average()  # update global weights
         net_glob.load_state_dict(w_glob, strict=False)  # copy weight to net_glob
-        
+
         local_weights.init()
-        
+
         if args.method == 'RFL':
             sim = torch.nn.CosineSimilarity(dim=1)
             tmp = 0
@@ -514,6 +437,11 @@ if __name__ == '__main__':
         results = dict(train_acc=train_acc, train_loss=train_loss,
                        test_acc=test_acc, test_loss=test_loss, )
 
+        if imagenet_val is not None:
+            test_imagenet_acc, test_imagenet_loss = test_img(net_glob, log_imagenet_val_data_loader, args)
+            results['test_imagenetacc'] = test_imagenet_acc
+            results['test_imagenetloss'] = test_imagenet_loss
+
         if args.send_2_models:
             w_glob2 = local_weights2.average()
             net_glob2.load_state_dict(w_glob2)
@@ -523,6 +451,11 @@ if __name__ == '__main__':
             test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
             results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
                             test_acc2=test_acc2, test_loss2=test_loss2, )
+            if imagenet_val is not None:
+                test_imagenet_acc2, test_imagenet_loss2 = test_img(net_glob, log_imagenet_val_data_loader, args)
+                results2['test_imagenetacc2'] = test_imagenet_acc2
+                results2['test_imagenetloss2'] = test_imagenet_loss2
+
             results = {**results, **results2}
 
         print('Round {:3d}'.format(epoch))

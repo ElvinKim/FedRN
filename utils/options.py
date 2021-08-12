@@ -9,8 +9,9 @@ import sys
 def args_parser():
     parser = argparse.ArgumentParser()
     # label noise method
-    parser.add_argument('--method', type=str, default='default', 
-                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix', 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors", "ours" ], 
+    parser.add_argument('--method', type=str, default='default',
+                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
+                                 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors", "ours"],
                         help='method name')
 
     # federated arguments
@@ -45,7 +46,8 @@ def args_parser():
     parser.add_argument('--reproduce', action='store_true', help='reproduce paper code')
 
     # other arguments
-    parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset")
+    parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset",
+                        choices=['mnist', 'cifar10', 'cifar100', 'webvision'])
     parser.add_argument('--iid', action='store_true', help='whether i.i.d or not')
     parser.add_argument('--num_classes', type=int, default=10, help="number of classes")
     parser.add_argument('--num_channels', type=int, default=3, help="number of channels of imges")
@@ -54,6 +56,7 @@ def args_parser():
     parser.add_argument('--verbose', action='store_true', help='verbose print')
     parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
+    parser.add_argument('--num_workers', type=int, default=4, help='num_workers to load data')
 
     # noise label arguments
     parser.add_argument('--noise_type_lst', nargs='+', default=['symmetric'], help='[pairflip, symmetric]')
@@ -105,11 +108,9 @@ def args_parser():
     parser.add_argument('--loss_dist_epoch', nargs='+', default=[], type=int)
     parser.add_argument('--loss_dist_epoch2', nargs='+', default=[], type=int)
     parser.add_argument('--save_dir2', type=str, default=None, help="for loss dist.")
-    
+
     # For our method
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
-    
-        
     parser.add_argument('--w_alpha', type=float, help='weight alpha for our method', default=0.5)
 
     args = parser.parse_args()
