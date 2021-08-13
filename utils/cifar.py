@@ -322,9 +322,18 @@ class CIFAR100(BaseCIFARDataset):
             downloaded again.
 
     """
-    base_folder = 'train' if nsml.IS_ON_NSML else 'cifar-100-python'
+    base_folder = 'train/cifar-100-python' if nsml.IS_ON_NSML else 'cifar-100-python'
     url = "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz"
-    filename = "cifar.tar" if nsml.IS_ON_NSML else "cifar-100-python.tar.gz"
+
+    if nsml.IS_ON_NSML:
+        session_name = nsml.SESSION_NAME.lower()
+        if session_name.startswith("kr") or session_name.startswith("shop"):
+            filename = "CIFAR100.tar"
+        else:
+            filename = "train.tar"
+    else:
+        filename = "cifar-10-python.tar.gz"
+
     tgz_md5 = 'eb9058c3a382ffc7106e4002c42a8d85'
     train_list = [
         ['train', '16019d7e3df5f24257cddd939b257f8d'],
