@@ -17,47 +17,39 @@ class Logger:
         else:
             result_dir = './save/{}/'.format(args.save_dir)
 
-        result_f = 'alpha[{}]_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
+        result_f = 'nei[{}]_alpha[{}]_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
+            args.num_neighbors,
             args.w_alpha,
             args.dataset,
             args.method,
             args.model,
             args.epochs,
-            args.frac,
             args.local_bs,
             args.local_ep,
             args.iid,
-            args.lr,
-            args.momentum,
             args.noise_type_lst,
             args.noise_group_num,
             args.group_noise_rate,
             args.partition,
-            args.experiment
         )
 
         if nsml.IS_ON_NSML:
             result_f = 'accuracy'
         else:
-            result_f = 'alpha[{}]_fedLNL_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]_TPL[{}]_LAB[{}]'.format(
+            result_f = 'nei[{}]_alpha[{}]_fedLNL_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
+                args.num_neighbors,
                 args.w_alpha,
                 args.dataset,
                 args.method,
                 args.model,
                 args.epochs,
-                args.frac,
                 args.local_bs,
                 args.local_ep,
                 args.iid,
-                args.lr,
-                args.momentum,
                 args.noise_type_lst,
                 args.noise_group_num,
                 args.group_noise_rate,
                 args.partition,
-                args.experiment,
-                args.T_pl,
-                args.labeling
             )
 
             if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
@@ -123,22 +115,20 @@ class NoiseLogger:
         if nsml.IS_ON_NSML:
             result_f = 'noise_label_accuracy'
         else:
-            result_f = 'fedLNL_noise_{}_{}_{}_{}_C[{}]_BS[{}]_LE[{}]_IID[{}]_LR[{}]_MMT[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]_EX[{}]'.format(
+            result_f = 'nei[{}]_alpha[{}]_fedLNL_noise_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
+                args.num_neighbors,
+                args.w_alpha,
                 args.dataset,
                 args.method,
                 args.model,
                 args.epochs,
-                args.frac,
                 args.local_bs,
                 args.local_ep,
                 args.iid,
-                args.lr,
-                args.momentum,
                 args.noise_type_lst,
                 args.noise_group_num,
                 args.group_noise_rate,
                 args.partition,
-                args.experiment
             )
 
         if not os.path.exists(result_dir):

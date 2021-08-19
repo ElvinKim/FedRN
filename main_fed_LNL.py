@@ -369,6 +369,8 @@ if __name__ == '__main__':
                     local.weight = copy.deepcopy(w)
 
                 elif args.method == "ours":
+                    print('-------------------------------')
+                    print('current client idx - {}'.format(idx))
                     if epoch < args.warmup_epochs:
                         w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
                     else:
@@ -378,6 +380,9 @@ if __name__ == '__main__':
                                     range(args.num_users)]
                         exp_list = [local_update_objects[n_i].expertise for n_i in range(args.num_users)]
 
+                        exp_max, exp_min = max(exp_list), min(exp_list) 
+                        exp_list = [(i-exp_min)/(exp_max-exp_min) for i in exp_list]
+                        
                         for index, (e, s) in enumerate(zip(exp_list, sim_list)):
                             if index != idx:
                                 score = args.w_alpha * e + (1 - args.w_alpha) * s
@@ -395,10 +400,13 @@ if __name__ == '__main__':
 
                             neighbor_score_lst.append(score_list[n_index][0])
 
-                        w, loss = local.train_phase2(client_num,
-                                                     copy.deepcopy(net_glob).to(args.device),
+                            print('selected neighbor idx - {} with sim : {}, exp: {}'.format(neighbor_idx, sim_list[neighbor_idx].item(), exp_list[neighbor_idx]))
+                            
+                        w, loss = local.train_phase2(client_num, 
+                                                     copy.deepcopy(net_glob).to(args.device), 
                                                      neighbor_lst,
                                                      neighbor_score_lst)
+                    print('-------------------------------')
 
                 else:
                     w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device))
@@ -463,11 +471,11 @@ if __name__ == '__main__':
 
         logger.write(epoch=epoch + 1, **results)
 
-        if epoch in args.loss_dist_epoch:
-            if args.send_2_models:
-                get_loss_dist(args, dataset_train, tmp_true_labels, net_glob, net_glob2)
-            else:
-                get_loss_dist(args, dataset_train, tmp_true_labels, net_glob)
+        #if epoch in args.loss_dist_epoch:
+        #    if args.send_2_models:
+        #        get_loss_dist(args, dataset_train, tmp_true_labels, net_glob, net_glob2)
+        #    else:
+        #        get_loss_dist(args, dataset_train, tmp_true_labels, net_glob)
 
         if nsml.IS_ON_NSML:
             nsml_results = {result_key.replace('_', '__'): result_value

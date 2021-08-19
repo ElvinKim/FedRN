@@ -90,11 +90,14 @@ def sample_dirichlet(labels, num_users, alpha=0.0):
 
             idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
             min_size = min([len(idx_j) for idx_j in idx_batch])
-
+    tot = 0
     for j in range(n_parties):
         np.random.shuffle(idx_batch[j])
         dict_users[j] = idx_batch[j]
-
+        print('idx: {}, size: {}'.format(j, len(dict_users[j])))
+        if j < 50:
+            tot += len(dict_users[j])
+    print('total: {}'.format(tot))
     return dict_users
 
 

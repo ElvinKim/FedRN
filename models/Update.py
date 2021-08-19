@@ -368,6 +368,7 @@ class BaseLocalUpdate:
                     wr.writerow([self.args.g_epoch, batch_idx, is_noise, loss.item()])
         f.close()
 
+        
     def train_single_model(self, client_num, net):
         net.train()
 
@@ -510,6 +511,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
             idxs=idxs,
             real_idx_return=True,
             noise_logger=noise_logger,
+            tmp_true_labels=tmp_true_labels,
             gaussian_noise=gaussian_noise
         )
         self.CE = nn.CrossEntropyLoss(reduction='none')
@@ -524,6 +526,63 @@ class LocalUpdateOurs(BaseLocalUpdate):
         self.expertise = 0.5
         self.arbitrary_output = torch.rand((1, 10))
 
+    def loss_dist(self, client_num, prev, neighbor_lst, neighbor_score_lst):
+        dataset = DatasetSplit(self.dataset, self.idxs, real_idx_return=True)
+   
+        if self.args.save_dir2 is None:
+            result_dir = './save/'
+        else:
+            result_dir = './save/{}/'.format(self.args.save_dir2)
+
+        if not os.path.exists(result_dir):
+            os.makedirs(result_dir)
+        
+        result_f = 'client_loss_dist_model[{}]_method[{}]_noise{}_NR{}_PT[{}]_ALP[{}]_NEI[{}]'.format(
+            self.args.model,
+            self.args.method,
+            self.args.noise_type_lst,
+            self.args.group_noise_rate,
+            self.args.partition,
+            self.args.w_alpha,
+            self.args.num_neighbors)
+     
+        f = open(result_dir + result_f + ".csv", 'a', newline='')
+        wr = csv.writer(f)
+        
+        if self.args.g_epoch == self.args.loss_dist_epoch[0]:
+            if client_num == 0:
+                wr.writerow(['epoch', 'net', 'client_idx', 'data_idx', 'is_noise', 'loss'])
+            else:
+                pass
+
+        prev.eval()
+        for n_net in neighbor_lst:
+            n_net.eval()     
+            
+        ce = nn.CrossEntropyLoss(reduce=False)
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(DataLoader(dataset, batch_size=1, shuffle=False)):
+                images, labels, _, real_idx = batch
+                images, labels = images.to(self.args.device), labels.to(self.args.device)
+
+                if self.tmp_true_labels[real_idx] != labels:
+                    is_noise = 1
+                else:
+                    is_noise = 0
+              
+                prev_logits = prev(images)
+                prev_loss = ce(prev_logits, labels) * (self.args.w_alpha * self.expertise + (1 - self.args.w_alpha))
+                net = 'prev'
+                wr.writerow([self.args.g_epoch, net, self.user_idx, real_idx.item(), is_noise, prev_loss.item()])
+                
+                for i, (n_net, score) in enumerate(zip(neighbor_lst, neighbor_score_lst)):
+                    net = 'nei ' + str(i+1) 
+                    n_outputs = n_net(images)
+                    n_loss = self.CE(n_outputs, labels) * score
+                    wr.writerow([self.args.g_epoch, net, self.user_idx, real_idx.item(), is_noise, n_loss.item()])
+             
+        f.close()
+    
     def split_data_indices(self, prev, neighbor_lst, neighbor_score_lst):
         prev.eval()
 
@@ -538,7 +597,8 @@ class LocalUpdateOurs(BaseLocalUpdate):
             for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
                 inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
                 outputs = prev(inputs)
-                loss = self.CE(outputs, targets)
+
+                loss = self.CE(outputs, targets) * (self.args.w_alpha * self.expertise + (1 - self.args.w_alpha))
 
                 for n_net, score in zip(neighbor_lst, neighbor_score_lst):
                     n_outputs = n_net(inputs)
@@ -630,9 +690,9 @@ class LocalUpdateOurs(BaseLocalUpdate):
 
         self.last_updated = self.args.g_epoch
 
-        if self.args.g_epoch in self.args.loss_dist_epoch:
-            self.get_loss_dist(client_num=client_num, client=True)
-
+        #if self.args.g_epoch in self.args.loss_dist_epoch:
+        #    self.get_loss_dist(client_num=client_num, client=True)
+            
         net.eval()
         correct = 0
         n_total = len(self.ldr_eval.dataset)
@@ -655,6 +715,9 @@ class LocalUpdateOurs(BaseLocalUpdate):
 
     def train_phase2(self, client_num, net, neighbor_lst, neighbor_score_lst):
         neigbor_lst = self.finetune(neighbor_lst)
+
+        if self.args.g_epoch in self.args.loss_dist_epoch:
+            self.loss_dist(client_num, self.net1, neighbor_lst, neighbor_score_lst)
 
         # fit GMM & get clean data index
         clean_idx, noisy_idx = self.split_data_indices(self.net1, neighbor_lst, neighbor_score_lst)
@@ -698,9 +761,9 @@ class LocalUpdateOurs(BaseLocalUpdate):
 
         self.last_updated = self.args.g_epoch
 
-        if self.args.g_epoch in self.args.loss_dist_epoch:
-            self.get_loss_dist(client_num=client_num, client=True)
-
+        #if self.args.g_epoch in self.args.loss_dist_epoch:
+        #    self.get_loss_dist(client_num=client_num, client=True, all_client=False)
+            
         net.eval()
         correct = 0
         n_total = len(self.ldr_eval.dataset)
@@ -1060,7 +1123,7 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
 
 class LocalUpdateCoteaching(BaseLocalUpdate):
     def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_logger=None, is_coteaching_plus=False,
-                 tmp_true_labels=False):
+                 tmp_true_labels=False, gaussian_noise=None):
         super().__init__(
             args=args,
             user_idx=user_idx,
@@ -1068,7 +1131,8 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
             idxs=idxs,
             real_idx_return=True,
             noise_logger=noise_logger,
-            tmp_true_labels=tmp_true_labels
+            tmp_true_labels=tmp_true_labels,
+            gaussian_noise=gaussian_noise
         )
         self.loss_func = nn.CrossEntropyLoss(reduce=False)
         self.is_coteaching_plus = is_coteaching_plus
