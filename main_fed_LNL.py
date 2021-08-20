@@ -389,7 +389,9 @@ if __name__ == '__main__':
                                 score_list.append([score, index])
 
                         score_list.sort(key=lambda x: x[0], reverse=True)
-
+                        
+                        prev_score = args.w_alpha * exp_list[idx] + (1 - args.w_alpha)
+                        
                         neighbor_lst = []
                         neighbor_score_lst = []
 
@@ -403,7 +405,8 @@ if __name__ == '__main__':
                             print('selected neighbor idx - {} with sim : {}, exp: {}'.format(neighbor_idx, sim_list[neighbor_idx].item(), exp_list[neighbor_idx]))
                             
                         w, loss = local.train_phase2(client_num, 
-                                                     copy.deepcopy(net_glob).to(args.device), 
+                                                     copy.deepcopy(net_glob).to(args.device),
+                                                     prev_score,
                                                      neighbor_lst,
                                                      neighbor_score_lst)
                     print('-------------------------------')

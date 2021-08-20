@@ -583,7 +583,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
              
         f.close()
     
-    def split_data_indices(self, prev, neighbor_lst, neighbor_score_lst):
+    def split_data_indices(self, prev, neighbor_lst, neighbor_score_lst, prev_score):
         prev.eval()
 
         for n_net in neighbor_lst:
@@ -598,7 +598,7 @@ class LocalUpdateOurs(BaseLocalUpdate):
                 inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
                 outputs = prev(inputs)
 
-                loss = self.CE(outputs, targets) * (self.args.w_alpha * self.expertise + (1 - self.args.w_alpha))
+                loss = self.CE(outputs, targets) * prev_score
 
                 for n_net, score in zip(neighbor_lst, neighbor_score_lst):
                     n_outputs = n_net(inputs)
@@ -713,14 +713,14 @@ class LocalUpdateOurs(BaseLocalUpdate):
 
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
-    def train_phase2(self, client_num, net, neighbor_lst, neighbor_score_lst):
+    def train_phase2(self, client_num, net, prev_score, neighbor_lst, neighbor_score_lst):
         neigbor_lst = self.finetune(neighbor_lst)
 
         if self.args.g_epoch in self.args.loss_dist_epoch:
             self.loss_dist(client_num, self.net1, neighbor_lst, neighbor_score_lst)
 
         # fit GMM & get clean data index
-        clean_idx, noisy_idx = self.split_data_indices(self.net1, neighbor_lst, neighbor_score_lst)
+        clean_idx, noisy_idx = self.split_data_indices(self.net1, neighbor_lst, neighbor_score_lst, prev_score)
 
         self.ldr_train = DataLoader(DatasetSplit(self.dataset, clean_idx, real_idx_return=True),
                                     batch_size=self.args.local_bs,
