@@ -5,7 +5,7 @@
 
 import numpy as np
 from torchvision import datasets, transforms
-
+from collections import Counter
 
 def sample_iid(labels, num_users):
     """
@@ -48,6 +48,7 @@ def sample_noniid_shard(labels, num_users, num_shards):
     for i in range(num_users):
         rand_set = set(np.random.choice(idx_shard, num_shards_per_user, replace=False))
         idx_shard = list(set(idx_shard) - rand_set)
+        
         for rand in rand_set:
             dict_users[i] = np.concatenate(
                 (dict_users[i], all_idxs[rand * num_imgs_per_shard: (rand + 1) * num_imgs_per_shard]),
@@ -99,6 +100,22 @@ def sample_dirichlet(labels, num_users, alpha=0.0):
             tot += len(dict_users[j])
     print('total: {}'.format(tot))
     return dict_users
+
+
+def valid_sampling(dict_users, num_users, dataset_test, tmp_true_labels):
+    valid_dict_users = {i: [] for i in range(num_users)}
+
+    for i in range(num_users):
+        data_counter = Counter(tmp_true_labels[dict_users[i]].tolist())
+        labels = data_counter.keys()
+        num_per_label = 500//len(labels)
+        for l in labels:
+            a = np.where(np.array(dataset_test.test_labels) == l)[0]
+            b = np.random.choice(a, num_per_label, replace=False)
+            valid_dict_users[i].extend(b)
+
+    return valid_dict_users
+
 
 
 if __name__ == '__main__':
