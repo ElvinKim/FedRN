@@ -313,7 +313,7 @@ if __name__ == '__main__':
                     w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device), neighbor_local)
                     local.weight = copy.deepcopy(w)
 
-                elif args.method == "ours":
+                elif args.method in ["fedrn", "rnmix"]:
                     
                     if epoch < args.warmup_epochs:
                         w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
