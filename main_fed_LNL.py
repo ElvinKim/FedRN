@@ -187,9 +187,6 @@ if __name__ == '__main__':
     net_glob = net_glob.to(args.device)
     print(net_glob)
     
-    if args.method in ['global_with_neighbors']:
-        temp_net = copy.deepcopy(net_glob)
-
     if args.send_2_models:
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
@@ -260,6 +257,34 @@ if __name__ == '__main__':
     for i in range(args.num_users):
         local = local_update_objects[i]
         local.weight = copy.deepcopy(net_glob.state_dict())
+        
+        
+    # for val. acc. check    
+    if args.save_dir is None:
+        result_dir = './save/'
+    else:
+        result_dir = './save/{}/'.format(args.save_dir)
+            
+    result_f = 'val_acc_summary_nei[{}]_alpha[{}]_{}_{}_{}_{}_NT[{}]_GNR[{}]_PT[{}]_SHARDNUM[{}]'.format(
+                args.num_neighbors,
+                args.w_alpha,
+                args.dataset,
+                args.method,
+                args.model,
+                args.epochs,
+                args.noise_type_lst,
+                args.group_noise_rate,
+                args.partition,
+                args.num_shards
+                )
+
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+    
+    f = open(result_dir + result_f + ".csv", 'w', newline='')
+    wr = csv.writer(f)
+    wr.writerow(['epoch', 'user_id', 'val_acc'])
+
 
     for epoch in range(args.epochs):
         if (epoch + 1) in args.schedule:
@@ -300,20 +325,8 @@ if __name__ == '__main__':
                     w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device),
                                                copy.deepcopy(f_G).to(args.device), client_num)
                     f_locals.append(f_k)
-                elif args.method == "global_with_neighbors":
-                    neighbor_local = None
 
-                    if epoch > args.warmup_epochs:
-                        neighbor_local = []
-
-                        for n_idx in neighbor_dict[idx]:
-                            temp_net.load_state_dict(local_update_objects[n_idx].weight)
-                            neighbor_local.append(copy.deepcopy(temp_net))
-
-                    w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device), neighbor_local)
-                    local.weight = copy.deepcopy(w)
-
-                elif args.method == "ours":
+                elif args.method == "FedRN":
                     
                     if epoch < args.warmup_epochs:
                         w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
@@ -325,7 +338,7 @@ if __name__ == '__main__':
                         exp_list = [local_update_objects[n_i].expertise for n_i in range(args.num_users)]
 
                         # Similarity & expertise normalizing
-                        sim_list = [(i-min(sim_list))/(max(sim_list)-min(sim_list)) for i in sim_list]
+                        sim_list = [((i-min(sim_list))/(max(sim_list)-min(sim_list))).item() for i in sim_list]
                         exp_list = [(i-min(exp_list))/(max(exp_list)-min(exp_list)) for i in exp_list]
                         
                         for index, (e, s) in enumerate(zip(exp_list, sim_list)):
@@ -347,16 +360,23 @@ if __name__ == '__main__':
                         print('Client Data     - {}'.format(sorted(data_counter.items())))
                         
                         for n_index in range(args.num_neighbors):
-                            neighbor_idx = score_list[n_index][1]
+                            if args.random_neighbor:
+                                rand_list =list(range(0,100))
+                                rand_list.remove(idx)
+                                neighbor_idx = random.choice(rand_list)
+                                neighbor_score_lst.append(prev_score)
+                            else:    
+                                neighbor_idx = score_list[n_index][1]
+                                neighbor_score_lst.append(score_list[n_index][0])
+                                
                             neighbor_net = copy.deepcopy(local_update_objects[neighbor_idx].net1)
                             neighbor_lst.append(neighbor_net)
 
-                            neighbor_score_lst.append(score_list[n_index][0])
-
-                            print('Neighbor {}      - idx: {}, sim: {:.5f}, exp: {:.5f}'.format(n_index+1, neighbor_idx, sim_list[neighbor_idx].item(), exp_list[neighbor_idx]))
+                            print('Neighbor {}      - idx: {}, sim: {:.5f}, exp: {:.5f}'.format(n_index+1, neighbor_idx, sim_list[neighbor_idx], exp_list[neighbor_idx]))
                             data_counter = Counter(tmp_true_labels[dict_users[neighbor_idx]].tolist())
                             print('Neighbor {} Data - {}'.format(n_index+1, sorted(data_counter.items())))
-                            
+                        
+                        
                         w, loss = local.train_phase2(client_num, 
                                                      copy.deepcopy(net_glob).to(args.device),
                                                      prev_score,
@@ -417,6 +437,48 @@ if __name__ == '__main__':
                 results2['test_imagenetloss2'] = test_imagenet_loss2
 
             results = {**results, **results2}
+   
+        ##############################
+        # Client Validation Acc. Check (every 100 epochs)
+        ##############################
+        if (epoch+1) % 100 == 0:
+            for i in range(args.num_users):
+                valid_loader = DataLoader(
+                    DatasetSplit(dataset_test, valid_dict_users[i], idx_return=False, real_idx_return=True),
+                    batch_size=args.local_bs,
+                    shuffle=False,
+                    num_workers=args.num_workers,
+                    pin_memory=True,
+                )
+
+                client_net = local_update_objects[i].net1
+                client_net.eval()
+                val_tot = len(valid_dict_users[i])
+                val_correct = 0
+
+                if args.send_2_models:
+                    client_net2 = local_update_objects[i].net2
+                    client_net2.eval()
+                    val_correct2 = 0
+
+                with torch.no_grad():
+                    for batch_idx, (inputs, targets, items, idxs) in enumerate(valid_loader):
+                        inputs, targets = inputs.to(args.device), targets.to(args.device)
+                        outputs = client_net(inputs)
+                        y_pred = outputs.data.max(1, keepdim=True)[1]
+                        val_correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
+                        if args.send_2_models:
+                            outputs2 = client_net2(inputs)
+                            y_pred2 = outputs2.data.max(1, keepdim=True)[1]
+                            val_correct2 += y_pred2.eq(targets.data.view_as(y_pred2)).float().sum().item()
+
+                    if args.send_2_models:
+                        val_correct = max(val_correct, val_correct2)
+
+                    val_acc = val_correct * 100 / val_tot
+                    
+                wr.writerow([epoch+1, i, val_acc])
+
         print('=================================================================================')
         print('Round {:3d}'.format(epoch))
         print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
@@ -435,71 +497,7 @@ if __name__ == '__main__':
                 **nsml_results,
             )
     
-    ##############################
-    # Final Client Validation Acc.
-    ##############################
-    if args.save_dir is None:
-        result_dir = './save/'
-    else:
-        result_dir = './save/{}/'.format(args.save_dir)
-            
-    result_f = 'val_acc_summary_nei[{}]_alpha[{}]_{}_{}_{}_{}_NT[{}]_GNR[{}]_PT[{}]_SHARDNUM[{}]'.format(
-                args.num_neighbors,
-                args.w_alpha,
-                args.dataset,
-                args.method,
-                args.model,
-                args.epochs,
-                args.noise_type_lst,
-                args.group_noise_rate,
-                args.partition,
-                args.num_shards
-                )
-
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
-    
-    f = open(result_dir + result_f + ".csv", 'w', newline='')
-    wr = csv.writer(f)
-
-    wr.writerow(['user_id', 'val_acc'])
-    
-    for i in range(args.num_users):
-        valid_loader = DataLoader(
-            DatasetSplit(dataset_test, valid_dict_users[i], idx_return=False, real_idx_return=True),
-            batch_size=args.local_bs,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        
-        client_net = local_update_objects[i].net1
-        client_net.eval()
-        val_tot = len(valid_dict_users[i])
-        val_correct = 0
-        
-        if args.send_2_models:
-            client_net2 = local_update_objects[i].net2
-            client_net2.eval()
-            val_correct2 = 0
-
-        with torch.no_grad():
-            for batch_idx, (inputs, targets, items, idxs) in enumerate(valid_loader):
-                inputs, targets = inputs.to(args.device), targets.to(args.device)
-                outputs = client_net(inputs)
-                y_pred = outputs.data.max(1, keepdim=True)[1]
-                val_correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
-                if args.send_2_models:
-                    outputs2 = client_net2(inputs)
-                    y_pred2 = outputs2.data.max(1, keepdim=True)[1]
-                    val_correct2 += y_pred2.eq(targets.data.view_as(y_pred2)).float().sum().item()
-                    
-            if args.send_2_models:
-                val_correct = max(val_correct, val_correct2)
-                
-            val_acc = val_correct * 100 / val_tot
-        wr.writerow([i, val_acc])
-    
+    f.close()
     logger.close()
     noise_logger.close()
     print("time :", time.time() - start)
