@@ -166,8 +166,11 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
         if args.method == 'default':
             local_update_object = BaseLocalUpdate(**local_update_args, gaussian_noise=gaussian_noise)
 
-        elif args.method == 'FedRN':
+        elif args.method == 'fedrn':
             local_update_object = LocalUpdateFedRN(**local_update_args, gaussian_noise=gaussian_noise)
+            
+        elif args.method == 'rnmix':
+            local_update_object = LocalUpdateRNMix(**local_update_args, gaussian_noise=gaussian_noise)
 
         elif args.method == 'selfie':
             local_update_object = LocalUpdateSELFIE(noise_rate=noise_rate, **local_update_args)
@@ -458,7 +461,6 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         return pred_clean_data, pred_noisy_data
     
     def head_finetune(self, neighbor_lst, pred_clean_idx):
-
         loader = DataLoader(
             DatasetSplit(self.dataset, pred_clean_idx, real_idx_return=True),
             batch_size=self.args.local_bs,
@@ -537,11 +539,11 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             false_negative = len(set(pred_noisy_data) & set(clean_data))
             true_negative = len(set(pred_noisy_data) & set(noisy_data))
 
+
             precision = true_positive / max(true_positive + false_positive, 1)
             recall = true_positive / max(true_positive + false_negative, 1)
 
             print('Precision: {:.5f}, Recall: {:.5f}'.format(precision, recall))
-
     
     def train_phase1(self, client_num, net):
         # local training
@@ -597,6 +599,181 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         
         return w, loss
 
+
+class LocalUpdateRNMix(LocalUpdateFedRN):
+    def __init__(self, args, dataset=None, user_idx=None, idxs=None, noise_logger=None, gaussian_noise=None, user_noisy_data=None):
+        super().__init__(
+            args=args,
+            dataset=dataset,
+            user_idx=user_idx,
+            idxs=idxs,
+            noise_logger=noise_logger,
+            gaussian_noise=gaussian_noise,
+            user_noisy_data=user_noisy_data
+        )
+        
+        self.CE = nn.CrossEntropyLoss(reduction='none')
+        self.CEloss = nn.CrossEntropyLoss()
+        self.semiloss = SemiLoss()
+        
+        self.ldr_eval = DataLoader(
+            DatasetSplit(dataset, idxs, real_idx_return=True),
+            batch_size=self.args.local_bs,
+            shuffle=False,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
+        )
+        self.expertise = 0.5
+        self.arbitrary_output = torch.rand((1, self.args.num_classes))
+
+        
+    def train_phase2(self, client_num, net, prev_score, neighbor_lst, neighbor_score_lst):
+        # fit GMM & get clean data index
+        clean_idx, noisy_idx, prob_dict = self.split_data_indices(client_num, self.net1, prev_score, neighbor_lst, neighbor_score_lst)
+
+        for ep in range(self.args.local_ep):
+            epoch_loss = []
+            self.noise_logger.update(clean_idx)
+            self.update_label_accuracy()
+
+            # train net1
+            loss = self.divide_mix(
+                net=net,
+                label_idx=clean_idx,
+                prob_dict=prob_dict,
+                unlabel_idx=noisy_idx,
+                warm_up=self.args.warmup_epochs,
+                epoch=self.args.g_epoch,
+            )
+
+            self.total_epochs += 1
+            epoch_loss.append(loss)
+
+        loss = sum(epoch_loss) / len(epoch_loss)
+        
+        self.net1.load_state_dict(net.state_dict())
+
+        self.last_updated = self.args.g_epoch
+            
+        net.eval()
+        correct = 0
+        n_total = len(self.ldr_eval.dataset)
+
+        # get expertise of the client
+        with torch.no_grad():
+            for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
+                inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
+                outputs = self.net1(inputs)
+                y_pred = outputs.data.max(1, keepdim=True)[1]
+                correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
+            expertise = correct / n_total
+
+        self.expertise = expertise
+
+        # arbitrary gaussian input inference
+        self.arbitrary_output = net(self.gaussian_noise.to(self.args.device))
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+        
+    def divide_mix(self, net, label_idx, prob_dict, unlabel_idx, warm_up, epoch):
+        net.train()
+
+        optimizer = torch.optim.SGD(net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+
+        # dataloader
+        labeled_trainloader = DataLoader(
+            PairProbDataset(self.dataset, label_idx, prob_dict),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        
+        unlabeled_trainloader = DataLoader(
+            PairDataset(self.dataset, unlabel_idx, label_return=False),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+        )
+        
+        unlabeled_train_iter = iter(unlabeled_trainloader)
+        num_iter = len(labeled_trainloader)
+
+        batch_loss = []
+        
+        for batch_idx, (inputs_x, inputs_x2, labels_x, w_x) in enumerate(labeled_trainloader):
+            try:
+                inputs_u, inputs_u2 = unlabeled_train_iter.next()
+            except:
+                unlabeled_train_iter = iter(unlabeled_trainloader)
+                inputs_u, inputs_u2 = unlabeled_train_iter.next()
+
+            batch_size = inputs_x.size(0)
+
+            # Transform label to one-hot
+            labels_x = torch.zeros(batch_size, self.args.num_classes) \
+                .scatter_(1, labels_x.view(-1, 1), 1)
+            w_x = w_x.view(-1, 1).type(torch.FloatTensor)
+
+            inputs_x = inputs_x.to(self.args.device)
+            inputs_x2 = inputs_x2.to(self.args.device)
+            labels_x = labels_x.to(self.args.device)
+            w_x = w_x.to(self.args.device)
+
+            inputs_u = inputs_u.to(self.args.device)
+            inputs_u2 = inputs_u2.to(self.args.device)
+
+            with torch.no_grad():
+                # label co-guessing of unlabeled samples
+                outputs_u11 = net(inputs_u)
+                outputs_u12 = net(inputs_u2)
+
+                pu = (torch.softmax(outputs_u11, dim=1) + torch.softmax(outputs_u12, dim=1)) / 2
+                ptu = pu ** (1 / self.args.T)  # temparature sharpening
+
+                targets_u = ptu / ptu.sum(dim=1, keepdim=True)  # normalize
+                targets_u = targets_u.detach()
+
+                # label refinement of labeled samples
+                outputs_x = net(inputs_x)
+                outputs_x2 = net(inputs_x2)
+
+                px = (torch.softmax(outputs_x, dim=1) + torch.softmax(outputs_x2, dim=1)) / 2
+                px = w_x * labels_x + (1 - w_x) * px
+                ptx = px ** (1 / self.args.T)  # temparature sharpening
+
+                targets_x = ptx / ptx.sum(dim=1, keepdim=True)  # normalize
+                targets_x = targets_x.detach()
+
+            # mixmatch
+            all_inputs = torch.cat([inputs_x, inputs_x2, inputs_u, inputs_u2], dim=0)
+            all_targets = torch.cat([targets_x, targets_x, targets_u, targets_u], dim=0)
+
+            mixed_input, mixed_target = mixup(all_inputs, all_targets, alpha=self.args.mm_alpha)
+
+            logits = net(mixed_input)
+            # compute loss
+            loss = self.semiloss(
+                outputs_x=logits[:batch_size * 2],
+                targets_x=mixed_target[:batch_size * 2],
+                outputs_u=logits[batch_size * 2:],
+                targets_u=mixed_target[batch_size * 2:],
+                lambda_u=self.args.lambda_u,
+                epoch=epoch + batch_idx / num_iter,
+                warm_up=warm_up,
+            )
+            # regularization
+            prior = torch.ones(self.args.num_classes, device=self.args.device) / self.args.num_classes
+            pred_mean = torch.softmax(logits, dim=1).mean(0)
+            penalty = torch.sum(prior * torch.log(prior / pred_mean))
+            loss += penalty
+
+            # compute gradient and do SGD step
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            batch_loss.append(loss.item())
+
+        return sum(batch_loss) / len(batch_loss)
+    
+
 class LocalUpdateRFL(BaseLocalUpdate):
     def __init__(self, args, dataset=None, user_idx=None, idxs=None, noise_logger=None):
         super().__init__(
@@ -606,6 +783,7 @@ class LocalUpdateRFL(BaseLocalUpdate):
             idxs=idxs,
             noise_logger=noise_logger
         )
+        
         self.pseudo_labels = torch.zeros(len(self.dataset), dtype=torch.long, device=self.args.device)
         self.sim = torch.nn.CosineSimilarity(dim=1)
         self.loss_func = torch.nn.CrossEntropyLoss(reduce=False)

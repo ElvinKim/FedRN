@@ -11,7 +11,7 @@ def args_parser():
     # label noise method
     parser.add_argument('--method', type=str, default='default',
                         choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors", "ours"],
+                                 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors", "fedrn", "rnmix"],
                         help='method name')
 
     # federated arguments
@@ -107,6 +107,7 @@ def args_parser():
     # For our method
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
     parser.add_argument('--w_alpha', type=float, help='weight alpha for our method', default=0.5)
-
+    parser.add_argument('--random_neighbor', action='store_true', help='random_neighbor')
+    
     args = parser.parse_args()
     return args

@@ -326,7 +326,7 @@ if __name__ == '__main__':
                                                copy.deepcopy(f_G).to(args.device), client_num)
                     f_locals.append(f_k)
 
-                elif args.method == "FedRN":
+                elif args.method in ["fedrn", "rnmix"]:
                     
                     if epoch < args.warmup_epochs:
                         w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
