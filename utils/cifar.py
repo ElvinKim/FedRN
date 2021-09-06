@@ -11,7 +11,7 @@ else:
     import pickle
 
 import torch.utils.data as data
-from .utils import download_url, check_integrity, noisify
+from .utils import download_url, check_integrity
 
 
 class BaseCIFARDataset(data.Dataset):
@@ -229,79 +229,6 @@ class CIFAR10(BaseCIFARDataset):
             download=download,
             random_state=random_state,
         )
-
-    def add_noise(self, noise_rate, noise_type, random_state):
-        # noisify train data
-        self.train_labels = np.asarray([[self.train_labels[i]] for i in range(len(self.train_labels))])
-        self.train_noisy_labels, self.actual_noise_rate = noisify(dataset=self.dataset,
-                                                                  train_labels=self.train_labels,
-                                                                  noise_type=noise_type,
-                                                                  noise_rate=noise_rate,
-                                                                  random_state=random_state,
-                                                                  nb_classes=self.nb_classes)
-        self.train_noisy_labels = [i[0] for i in self.train_noisy_labels]
-        _train_labels = [i[0] for i in self.train_labels]
-        self.noise_or_not = np.transpose(self.train_noisy_labels) == np.transpose(_train_labels)
-
-
-class CIFAR10Softlabel(CIFAR10):
-    def __init__(self,
-                 root,
-                 train=True,
-                 transform=None,
-                 target_transform=None,
-                 download=False,
-                 args=None,
-                 random_state=0):
-
-        super(CIFAR10, self).__init__(
-            root=root,
-            train=train,
-            transform=transform,
-            target_transform=target_transform,
-            download=download,
-            random_state=random_state,
-        )
-        self.args = args
-        if self.train:
-            self.soft_labels = np.zeros((len(self.train_data), self.nb_classes), dtype=np.float32)
-            self.prediction = np.zeros((len(self.train_data), args.K, self.nb_classes), dtype=np.float32)
-
-    def __getitem__(self, index):
-        """
-        Args:
-            index (int): Index
-
-        Returns:
-            tuple: (image, target) where target is index of the target class.
-        """
-        index = int(index)
-
-        if self.train:
-            img, target, soft_label, prediction = self.train_data[index], self.train_labels[index], self.soft_labels[
-                index], self.prediction[index]
-        else:
-            img, target = self.test_data[index], self.test_labels[index]
-
-        # doing this so that it is consistent with all other datasets
-        # to return a PIL Image
-        img = Image.fromarray(img)
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        if self.train:
-            return img, target, soft_label, prediction, index
-        else:
-            return img, target
-
-    def label_update(self, results):
-        if self.count >= self.args.begin:
-            self.soft_labels = self.prediction.mean(axis=1)
-            self.train_labels = np.argmax(self.soft_labels, axis=1).astype(np.int64)
 
 
 class CIFAR100(BaseCIFARDataset):
