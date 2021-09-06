@@ -6,7 +6,7 @@ from torch import nn
 
 
 def get_model(args):
-    return CNN4Conv(num_classes=args.num_classes, feature_return=args.feature_return)
+    return CNN4Conv(num_classes=args.num_classes)
 
 
 def conv3x3(in_channels, out_channels, **kwargs):
@@ -19,7 +19,7 @@ def conv3x3(in_channels, out_channels, **kwargs):
 
 
 class CNN4Conv(nn.Module):
-    def __init__(self, num_classes, feature_return=False):
+    def __init__(self, num_classes):
         super(CNN4Conv, self).__init__()
         in_channels = 3
         num_classes = num_classes
@@ -33,13 +33,10 @@ class CNN4Conv(nn.Module):
         )
 
         self.linear = nn.Linear(hidden_size * 2 * 2, num_classes)
-        self.feature_return = feature_return
 
     def forward(self, x):
         features = self.features(x)
         features = features.view((features.size(0), -1))
         logits = self.linear(features)
 
-        if self.feature_return:
-            return logits, features
         return logits
