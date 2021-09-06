@@ -52,7 +52,7 @@ class Logger:
                 args.partition,
             )
 
-            if args.method in ['coteaching', 'coteaching+', 'finetune', 'lgfinetune', 'gfilter', 'gmix', 'lgteaching']:
+            if args.method in ['coteaching', 'coteaching+']:
                 result_f += "_FR[{}]_FRS[{}]".format(args.forget_rate, args.forget_rate_schedule)
 
         if not os.path.exists(result_dir):

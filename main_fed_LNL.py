@@ -39,22 +39,6 @@ if __name__ == '__main__':
     args.schedule = [int(x) for x in args.schedule]
     args.send_2_models = args.method in ['coteaching', 'coteaching+', 'dividemix', ]
 
-    # Reproducing "Robust Fl with NLs"
-    if args.reproduce and args.method == 'RFL':
-        args.weight_decay = 0.0001
-        args.lr = 0.25
-        args.model = 'cnn9'
-        args.feature_return = True
-
-    # determine feature dimension
-    if args.model == 'cnn9':
-        args.feature_dim = 128
-    elif args.model == 'cnn4conv':
-        args.feature_dim = 256
-    else:
-        # Otherwise, need to check
-        args.feature_dim = 0
-
     for x in vars(args).items():
         print(x)
 
@@ -191,12 +175,6 @@ if __name__ == '__main__':
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
 
-    net_local_lst = None
-    if args.method in ['lgfinetune', 'lgteaching', 'lgcorrection']:
-        net_local_lst = []
-        for i in range(args.num_users):
-            net_local_lst.append(net_glob.to(args.device))
-
     ##############################
     # Training
     ##############################
@@ -205,7 +183,7 @@ if __name__ == '__main__':
 
     forget_rate_schedule = []
 
-    if args.method in ['coteaching', 'coteaching+', 'finetune', 'RFL', "global_model"]:
+    if args.method in ['coteaching', 'coteaching+']:
         if args.forget_rate_schedule == "fix":
             num_gradual = args.warmup_epochs
 
@@ -246,7 +224,6 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=pred_user_noise_rates,
         net_glob=net_glob,
-        net_local_lst=net_local_lst,
         noise_logger=noise_logger,
         gaussian_noise=gaussian_noise,
         user_noisy_data=user_noisy_data
@@ -321,12 +298,7 @@ if __name__ == '__main__':
                 local_losses2.append(copy.deepcopy(loss2))
 
             else:
-                if args.method == 'RFL':
-                    w, loss, f_k = local.train(copy.deepcopy(net_glob).to(args.device),
-                                               copy.deepcopy(f_G).to(args.device), client_num)
-                    f_locals.append(f_k)
-
-                elif args.method in ["fedrn", "rnmix"]:
+                if args.method == "fedrn":
                     
                     if epoch < args.warmup_epochs:
                         w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
@@ -396,20 +368,6 @@ if __name__ == '__main__':
 
         local_weights.init()
 
-        if args.method == 'RFL':
-            sim = torch.nn.CosineSimilarity(dim=1)
-            tmp = 0
-            w_sum = 0
-            for i in f_locals:
-                sim_weight = sim(f_G, i).reshape(args.num_classes, 1)
-                w_sum += sim_weight
-                tmp += sim_weight * i
-            for i in range(len(w_sum)):
-                if w_sum[i] == 0:
-                    print('check')
-                    w_sum[i] = 1
-            f_G = torch.div(tmp, w_sum)
-
         train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
         test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)
 
@@ -437,52 +395,6 @@ if __name__ == '__main__':
                 results2['test_imagenetloss2'] = test_imagenet_loss2
 
             results = {**results, **results2}
-   
-        ##############################
-        # Client Validation Acc. Check (every 100 epochs)
-        ##############################
-        if (epoch+1) % 100 == 0:
-            for i in range(args.num_users):
-                valid_loader = DataLoader(
-                    DatasetSplit(dataset_test, valid_dict_users[i], idx_return=False, real_idx_return=True),
-                    batch_size=args.local_bs,
-                    shuffle=False,
-                    num_workers=args.num_workers,
-                    pin_memory=True,
-                )
-
-                client_net = local_update_objects[i].net1
-                client_net.eval()
-                val_tot = len(valid_dict_users[i])
-                val_correct = 0
-
-                if args.send_2_models:
-                    client_net2 = local_update_objects[i].net2
-                    client_net2.eval()
-                    val_correct2 = 0
-
-                with torch.no_grad():
-                    for batch_idx, (inputs, targets, items, idxs) in enumerate(valid_loader):
-                        inputs, targets = inputs.to(args.device), targets.to(args.device)
-                        outputs = client_net(inputs)
-                        y_pred = outputs.data.max(1, keepdim=True)[1]
-                        val_correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
-                        if args.send_2_models:
-                            outputs2 = client_net2(inputs)
-                            y_pred2 = outputs2.data.max(1, keepdim=True)[1]
-                            val_correct2 += y_pred2.eq(targets.data.view_as(y_pred2)).float().sum().item()
-
-                    if args.send_2_models:
-                        val_correct = max(val_correct, val_correct2)
-
-                    val_acc = val_correct * 100 / val_tot
-                    
-                wr.writerow([epoch+1, i, val_acc])
-
-        print('=================================================================================')
-        print('Round {:3d}'.format(epoch))
-        print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
-        print('=================================================================================')
 
         logger.write(epoch=epoch + 1, **results)
 
@@ -496,7 +408,7 @@ if __name__ == '__main__':
                 lr=args.lr,
                 **nsml_results,
             )
-    
+
     f.close()
     logger.close()
     noise_logger.close()

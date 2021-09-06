@@ -10,8 +10,7 @@ def args_parser():
     parser = argparse.ArgumentParser()
     # label noise method
     parser.add_argument('--method', type=str, default='default',
-                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix',
-                                 'RFL', "fedprox", "global_model", "global_GMM_base", "global_with_neighbors", "fedrn", "rnmix"],
+                        choices=['default', 'selfie', 'jointoptim', 'coteaching', 'coteaching+', 'dividemix', 'fedrn'],
                         help='method name')
 
     # federated arguments
@@ -87,13 +86,6 @@ def args_parser():
 
     # finetuning arguments
     parser.add_argument('--ft_local_ep', type=int, default=5, help="the number of local epoch for fine-tuning")
-
-    # RFL arguments
-    parser.add_argument('--T_pl', type=int, help='T_pl', default=100)
-    parser.add_argument('--feature_dim', type=int, help='feature dimension', default=256)
-    parser.add_argument('--lambda_cen', type=float, help='lambda_cen', default=1.0)
-    parser.add_argument('--lambda_e', type=float, help='lambda_e', default=0.8)
-    parser.add_argument('--feature_return', action='store_true', help='feature extraction')
 
     # For our method
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
