@@ -82,6 +82,6 @@ python main_fed_LNL.py \
 | Parameter                      | Description                                 |
 | ----------------------------- | ---------------------------------------- |
 | `num_neighbors` |  The number of reliable neighbors, default = `2` |
-| `w_alpha` | Controls the contribution of expertise and data similiarity.|  |
+| `w_alpha` | The hyperparameter controlling the contribution of expertise and data similiarity.|  |
 
 Please check `run.sh` for commands for various data and noisy label scenarios.
