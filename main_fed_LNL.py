@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
-from collections import Counter
 import copy
 import numpy as np
 import os
@@ -64,10 +63,9 @@ if __name__ == '__main__':
     
     # Sample users (iid / non-iid)
     if args.iid:
-        print('iid')
         dict_users = sample_iid(labels, args.num_users)
+
     elif args.partition == 'shard':
-        print(args.partition)
         dict_users = sample_noniid_shard(
             labels=labels,
             num_users=args.num_users,
@@ -75,16 +73,12 @@ if __name__ == '__main__':
         )
   
     elif args.partition == 'dirichlet':
-        print(args.partition)
         dict_users = sample_dirichlet(
             labels=labels,
             num_users=args.num_users,
             alpha=args.dd_alpha,
         )
  
-    tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
-    tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)
-
     ##############################
     # Add label noise to data
     ##############################
@@ -111,7 +105,6 @@ if __name__ == '__main__':
 
         user_noise_type_rates += [*zip(noise_types, noise_rates)]
 
-    user_noisy_data = {user: [] for user in dict_users}
     for user, (user_noise_type, user_noise_rate) in enumerate(user_noise_type_rates):
         if user_noise_type != "clean":
             data_indices = list(copy.deepcopy(dict_users[user]))
@@ -126,26 +119,6 @@ if __name__ == '__main__':
                 true_label = dataset_train.train_labels[d_idx]
                 noisy_label = noisify_label(true_label, num_classes=args.num_classes, noise_type=user_noise_type)
                 dataset_train.train_labels[d_idx] = noisy_label
-                user_noisy_data[user].append(d_idx)
-        else:
-            if user_noise_rate != 0:
-                data_indices = list(copy.deepcopy(dict_users[user]))
-
-                # for reproduction
-                random.seed(args.seed)
-                random.shuffle(data_indices)
-
-                delete_index = int(len(data_indices) * user_noise_rate)
-
-                dict_users[user] = data_indices[delete_index:]
-
-    total_noise_cnt = 0
-    for user, user_noise_type_rate in enumerate(user_noise_type_rates):
-        print("USER {} - {} - {}".format(user, user_noise_type_rate,
-                                         int(len(dict_users[user]) * user_noise_type_rates[user][1])))
-        total_noise_cnt += int(len(dict_users[user]) * user_noise_type_rates[user][1])
-
-    print("Global Noise Rate : {}".format(total_noise_cnt / 50000))
 
     # for logging purposes
     logging_args = dict(
@@ -170,25 +143,15 @@ if __name__ == '__main__':
     ##############################
     # Training
     ##############################
+    CosineSimilarity = torch.nn.CosineSimilarity()
+
     forget_rate_schedule = []
-
     if args.method in ['coteaching', 'coteaching+']:
-        if args.forget_rate_schedule == "fix":
-            num_gradual = args.warmup_epochs
-
-        elif args.forget_rate_schedule == 'stairstep':
-            num_gradual = args.epochs
-
-        else:
-            exit("Error: Forget rate schedule - fix or stairstep")
-
+        num_gradual = args.warmup_epochs
         forget_rate = args.forget_rate
         exponent = 1
         forget_rate_schedule = np.ones(args.epochs) * forget_rate
         forget_rate_schedule[:num_gradual] = np.linspace(0, forget_rate ** exponent, num_gradual)
-
-    print("Forget Rate Schedule")
-    print(forget_rate_schedule)
 
     pred_user_noise_rates = [args.forget_rate] * args.num_users
 
@@ -204,8 +167,6 @@ if __name__ == '__main__':
     if args.send_2_models:
         local_weights2 = LocalModelWeights(net_glob=net_glob2, **fed_args)
 
-    f_G = torch.randn(args.num_classes, args.feature_dim, device=args.device)
-
     # Initialize local update objects
     local_update_objects = get_local_update_objects(
         args=args,
@@ -213,37 +174,10 @@ if __name__ == '__main__':
         dict_users=dict_users,
         noise_rates=pred_user_noise_rates,
         gaussian_noise=gaussian_noise,
-        user_noisy_data=user_noisy_data
     )
-
-    cos_sim = torch.nn.CosineSimilarity()
-    
     for i in range(args.num_users):
         local = local_update_objects[i]
         local.weight = copy.deepcopy(net_glob.state_dict())
-        
-        
-    # for val. acc. check    
-    if args.save_dir is None:
-        result_dir = './save/'
-    else:
-        result_dir = './save/{}/'.format(args.save_dir)
-            
-    result_f = 'val_acc_summary_nei[{}]_alpha[{}]_{}_{}_{}_{}_NT[{}]_GNR[{}]_PT[{}]_SHARDNUM[{}]'.format(
-                args.num_neighbors,
-                args.w_alpha,
-                args.dataset,
-                args.method,
-                args.model,
-                args.epochs,
-                args.noise_type_lst,
-                args.group_noise_rate,
-                args.partition,
-                args.num_shards
-                )
-
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
 
     for epoch in range(args.epochs):
         if (epoch + 1) in args.schedule:
@@ -257,7 +191,6 @@ if __name__ == '__main__':
         local_losses = []
         local_losses2 = []
         args.g_epoch = epoch
-        f_locals = []
 
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
@@ -268,9 +201,54 @@ if __name__ == '__main__':
             local.args = args
             # local.args.local_bs = int(len(dict_users[idx]) / 10)
 
-            if args.send_2_models:
+            if args.method == "fedrn":
+                if epoch < args.warmup_epochs:
+                    w, loss = local.train_phase1(copy.deepcopy(net_glob).to(args.device))
+                else:
+                    # Get similarity, expertise values
+                    sim_list = []
+                    exp_list = []
+                    for user in range(args.num_users):
+                        sim = CosineSimilarity(
+                            local.arbitrary_output.to(args.device),
+                            local_update_objects[user].arbitrary_output.to(args.device),
+                        ).item()
+                        exp = local_update_objects[user].expertise
+                        sim_list.append(sim)
+                        exp_list.append(exp)
+
+                    # Normalize similarity & expertise values
+                    sim_list = [(sim - min(sim_list)) / (max(sim_list) - min(sim_list)) for sim in sim_list]
+                    exp_list = [(exp - min(exp_list)) / (max(exp_list) - min(exp_list)) for exp in exp_list]
+
+                    # Compute & sort scores
+                    prev_score = args.w_alpha * exp_list[idx] + (1 - args.w_alpha)
+
+                    score_list = []
+                    for neighbor_idx, (exp, sim) in enumerate(zip(exp_list, sim_list)):
+                        if neighbor_idx != idx:
+                            score = args.w_alpha * exp + (1 - args.w_alpha) * sim
+                            score_list.append([score, neighbor_idx])
+                    score_list.sort(key=lambda x: x[0], reverse=True)
+
+                    # Get top-k neighbors
+                    neighbor_list = []
+                    neighbor_score_list = []
+                    for k in range(args.num_neighbors):
+                        neighbor_score, neighbor_idx = score_list[k]
+                        neighbor_net = copy.deepcopy(local_update_objects[neighbor_idx].net1)
+                        neighbor_list.append(neighbor_net)
+                        neighbor_score_list.append(neighbor_score)
+
+                    w, loss = local.train_phase2(copy.deepcopy(net_glob).to(args.device),
+                                                 prev_score,
+                                                 neighbor_list,
+                                                 neighbor_score_list)
+                    local_weights.update(idx, w)
+                    local_losses.append(copy.deepcopy(loss))
+
+            elif args.send_2_models:
                 w, loss, w2, loss2 = local.train(
-                    client_num,
                     copy.deepcopy(net_glob).to(args.device),
                     copy.deepcopy(net_glob2).to(args.device),
                 )
@@ -280,79 +258,16 @@ if __name__ == '__main__':
                 local_losses2.append(copy.deepcopy(loss2))
 
             else:
-                if args.method == "fedrn":
-                    
-                    if epoch < args.warmup_epochs:
-                        w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
-                    else:
-                        score_list = []
-                        sim_list = [cos_sim(local_update_objects[idx].arbitrary_output.to(args.device),
-                                            local_update_objects[n_i].arbitrary_output.to(args.device)) for n_i in
-                                    range(args.num_users)]
-                        exp_list = [local_update_objects[n_i].expertise for n_i in range(args.num_users)]
-
-                        # Similarity & expertise normalizing
-                        sim_list = [((i-min(sim_list))/(max(sim_list)-min(sim_list))).item() for i in sim_list]
-                        exp_list = [(i-min(exp_list))/(max(exp_list)-min(exp_list)) for i in exp_list]
-                        
-                        for index, (e, s) in enumerate(zip(exp_list, sim_list)):
-                            if index != idx:
-                                score = args.w_alpha * e + (1 - args.w_alpha) * s
-                                score_list.append([score, index])
-
-                        score_list.sort(key=lambda x: x[0], reverse=True)
-                        
-                        prev_score = args.w_alpha * exp_list[idx] + (1 - args.w_alpha)
-                        
-                        neighbor_lst = []
-                        neighbor_score_lst = []
-                        print('--------------------------------------------------------------')
- 
-                        print('[Index & Score Summary]')
-                        print('Client          - idx: {}, sim: {:.5f}, exp: {:.5f}'.format(idx, 1, exp_list[idx]))
-                        data_counter = Counter(tmp_true_labels[dict_users[idx]].tolist())
-                        print('Client Data     - {}'.format(sorted(data_counter.items())))
-                        
-                        for n_index in range(args.num_neighbors):
-                            if args.random_neighbor:
-                                rand_list =list(range(0,100))
-                                rand_list.remove(idx)
-                                neighbor_idx = random.choice(rand_list)
-                                neighbor_score_lst.append(prev_score)
-                            else:    
-                                neighbor_idx = score_list[n_index][1]
-                                neighbor_score_lst.append(score_list[n_index][0])
-                                
-                            neighbor_net = copy.deepcopy(local_update_objects[neighbor_idx].net1)
-                            neighbor_lst.append(neighbor_net)
-
-                            print('Neighbor {}      - idx: {}, sim: {:.5f}, exp: {:.5f}'.format(n_index+1, neighbor_idx, sim_list[neighbor_idx], exp_list[neighbor_idx]))
-                            data_counter = Counter(tmp_true_labels[dict_users[neighbor_idx]].tolist())
-                            print('Neighbor {} Data - {}'.format(n_index+1, sorted(data_counter.items())))
-                        
-                        
-                        w, loss = local.train_phase2(client_num, 
-                                                     copy.deepcopy(net_glob).to(args.device),
-                                                     prev_score,
-                                                     neighbor_lst,
-                                                     neighbor_score_lst)
-                    
-
-                else:
-                    w, loss = local.train(client_num, copy.deepcopy(net_glob).to(args.device))
-
-                # local_weights.update(idx, w, len(dict_users[idx]))
+                w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
                 local_weights.update(idx, w)
                 local_losses.append(copy.deepcopy(loss))
 
         w_glob = local_weights.average()  # update global weights
         net_glob.load_state_dict(w_glob, strict=False)  # copy weight to net_glob
-
         local_weights.init()
 
         train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
         test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)
-
         # for logging purposes
         results = dict(train_acc=train_acc, train_loss=train_loss,
                        test_acc=test_acc, test_loss=test_loss, )

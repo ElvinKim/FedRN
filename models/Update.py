@@ -117,8 +117,7 @@ class SemiLoss:
         return Lx + lamb * Lu
 
 
-def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None,
-                             gaussian_noise=None, user_noisy_data=None):
+def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, gaussian_noise=None):
     local_update_objects = []
     for idx, noise_rate in zip(range(args.num_users), noise_rates):
         local_update_args = dict(
@@ -132,10 +131,8 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
             local_update_object = BaseLocalUpdate(**local_update_args, gaussian_noise=gaussian_noise)
 
         elif args.method == 'fedrn':
-            local_update_object = LocalUpdateFedRN(**local_update_args,
-                                                   gaussian_noise=gaussian_noise,
-                                                   user_noisy_data=user_noisy_data[idx])
-            
+            local_update_object = LocalUpdateFedRN(**local_update_args, gaussian_noise=gaussian_noise)
+
         elif args.method == 'selfie':
             local_update_object = LocalUpdateSELFIE(noise_rate=noise_rate, **local_update_args)
 
@@ -181,7 +178,7 @@ class BaseLocalUpdate:
             num_workers=self.args.num_workers,
             pin_memory=True,
         )
-        
+
         self.total_epochs = 0
         self.epoch = 0
         self.batch_idx = 0
@@ -195,13 +192,13 @@ class BaseLocalUpdate:
 
         self.gaussian_noise = gaussian_noise
 
-    def train(self, client_num, net, net2=None):
+    def train(self, net, net2=None):
         if net2 is None:
-            return self.train_single_model(client_num, net)
+            return self.train_single_model(net)
         else:
-            return self.train_multiple_models(client_num, net, net2)
-        
-    def train_single_model(self, client_num, net):
+            return self.train_multiple_models(net, net2)
+
+    def train_single_model(self, net):
         net.train()
 
         optimizer = torch.optim.SGD(
@@ -233,13 +230,13 @@ class BaseLocalUpdate:
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
             self.total_epochs += 1
             self.on_epoch_end()
-        
+
         self.net1.load_state_dict(net.state_dict())
         self.last_updated = self.args.g_epoch
 
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
-    def train_multiple_models(self, client_num, net1, net2):
+    def train_multiple_models(self, net1, net2):
         net1.train()
         net2.train()
 
@@ -321,7 +318,7 @@ class BaseLocalUpdate:
 
 class LocalUpdateFedRN(BaseLocalUpdate):
     def __init__(self, args, dataset=None, user_idx=None, idxs=None,
-                 gaussian_noise=None, user_noisy_data=None):
+                 gaussian_noise=None):
         super().__init__(
             args=args,
             dataset=dataset,
@@ -330,11 +327,8 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             real_idx_return=True,
             gaussian_noise=gaussian_noise,
         )
-        self.user_noisy_data = user_noisy_data
-        self.user_clean_data = list(set(idxs) - set(user_noisy_data))
-
         self.CE = nn.CrossEntropyLoss(reduction='none')
-        
+
         self.ldr_eval = DataLoader(
             DatasetSplit(dataset, idxs, real_idx_return=True),
             batch_size=self.args.local_bs,
@@ -344,16 +338,16 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         )
         self.expertise = 0.5
         self.arbitrary_output = torch.rand((1, self.args.num_classes))
-    
+
     def fit_gmm(self, nets):
 
         losses_lst, losses = [[] for i in range(len(nets))], [[] for i in range(len(nets))]
         prob_lst = [[] for i in range(len(nets))]
         idx_lst = []
-        
+
         for net in nets:
             net.eval()
-        
+
         with torch.no_grad():
             for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
                 inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
@@ -361,12 +355,12 @@ class LocalUpdateFedRN(BaseLocalUpdate):
                     outputs = net(inputs)
                     loss = self.CE(outputs, targets)
                     losses_lst[i].append(loss)
-                idx_lst.append(idxs.cpu().numpy()) 
-                
+                idx_lst.append(idxs.cpu().numpy())
+
         for i in range(len(nets)):
             losses[i] = torch.cat(losses_lst[i]).cpu().numpy()
         indices = np.concatenate(idx_lst)
-        
+
         for i in range(len(nets)):
             losses[i] = (losses[i] - losses[i].min()) / (losses[i].max() - losses[i].min())
             input_loss = losses[i].reshape(-1, 1)
@@ -376,7 +370,7 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             prob_lst[i] = prob[:, gmm.means_.argmin()]
 
         return prob_lst, indices
-    
+
     def get_clean_idx(self, prob, indices):
         threshold = self.args.p_threshold
         pred = (prob > threshold)
@@ -384,9 +378,9 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         pred_clean_data = indices[pred_clean_data]
         pred_noisy_data = (1 - pred).nonzero()[0]
         pred_noisy_data = indices[pred_noisy_data]
-        
+
         return pred_clean_data, pred_noisy_data
-    
+
     def head_finetune(self, neighbor_lst, pred_clean_idx):
         loader = DataLoader(
             DatasetSplit(self.dataset, pred_clean_idx, real_idx_return=True),
@@ -395,16 +389,20 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             num_workers=self.args.num_workers,
             pin_memory=True,
         )
-  
+
         n_opt_lst = []
 
         for n_net in neighbor_lst:
             n_net.train()
             body_params = [p for name, p in n_net.named_parameters() if 'linear' not in name]
             head_params = [p for name, p in n_net.named_parameters() if 'linear' in name]
-            
-            optimizer = torch.optim.SGD([{'params': head_params, 'lr': self.args.lr, 'momentum': self.args.momentum, 'weight_decay' : self.args.weight_decay},
-                                         {'params': body_params, 'lr': 0.0}])
+
+            optimizer = torch.optim.SGD([
+                {'params': head_params, 'lr': self.args.lr,
+                 'momentum': self.args.momentum,
+                 'weight_decay': self.args.weight_decay},
+                {'params': body_params, 'lr': 0.0},
+            ])
             n_opt_lst.append(optimizer)
 
         for batch_idx, (inputs, targets, items, idxs) in enumerate(loader):
@@ -425,7 +423,7 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         self.net1.eval()
         correct = 0
         n_total = len(self.ldr_eval.dataset)
-        
+
         with torch.no_grad():
             for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
                 inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
@@ -436,81 +434,42 @@ class LocalUpdateFedRN(BaseLocalUpdate):
 
         self.expertise = expertise
         return expertise
-    
+
     def get_arbitrary_output(self):
         arbitrary_output = self.net1(self.gaussian_noise.to(self.args.device))
         self.arbitrary_output = arbitrary_output
-        
         return arbitrary_output
 
-    def print_precision_recall(self, prob_lst, indices):
-        clean_data = set(self.user_clean_data)
-        noisy_data = set(self.user_noisy_data)
-        
-        threshold = self.args.p_threshold
-        for i in range(len(prob_lst)):
-            pred = (prob_lst[i] > threshold)
-            pred_clean_data = pred.nonzero()[0]
-            pred_clean_data = indices[pred_clean_data]
-            pred_noisy_data = (1 - pred).nonzero()[0]
-            pred_noisy_data = indices[pred_noisy_data]
-
-            if len(pred_clean_data) != 0:
-                pred_clean_data = set(pred_clean_data)
-            else:
-                pred_clean_data = set()    
-            pred_noisy_data = set(pred_noisy_data)
-      
-            true_positive = len(set(pred_clean_data) & set(clean_data))
-            false_positive = len(set(pred_clean_data) & set(noisy_data))
-            false_negative = len(set(pred_noisy_data) & set(clean_data))
-            true_negative = len(set(pred_noisy_data) & set(noisy_data))
-
-
-            precision = true_positive / max(true_positive + false_positive, 1)
-            recall = true_positive / max(true_positive + false_negative, 1)
-
-            print('Precision: {:.5f}, Recall: {:.5f}'.format(precision, recall))
-    
-    def train_phase1(self, client_num, net):
+    def train_phase1(self, net):
         # local training
-        w, loss = self.train_single_model(client_num, net)
+        w, loss = self.train_single_model(net)
         expertise = self.get_expertise()
         arbitrary_output = self.get_arbitrary_output()
 
         return w, loss
 
-    def train_phase2(self, client_num, net, prev_score, neighbor_lst, neighbor_score_lst):
+    def train_phase2(self, net, prev_score, neighbor_lst, neighbor_score_lst):
         # Prev fit GMM & get clean idx
         prob, indices = self.fit_gmm([self.net1])
         pred_clean_idx, pred_noisy_idx = self.get_clean_idx(prob[0], indices)
-        
-        print('[Client]')
-        self.print_precision_recall(prob, indices)
 
         # Finetune (Only HEAD) neighbors with pred_clean_idx
         neigbor_lst = self.head_finetune(neighbor_lst, pred_clean_idx)
-        
+
         # Neighbors fit GMM
         neighbor_prob_lst, indices = self.fit_gmm(neigbor_lst)
-        
-        print('[Neighbors]')
-        self.print_precision_recall(neighbor_prob_lst, indices)
-        
+
         # Get final prob
         score_lst = [prev_score] + neighbor_score_lst
-        score_lst = [i/sum(score_lst) for i in score_lst]
+        score_lst = [i / sum(score_lst) for i in score_lst]
         prob_lst = prob + neighbor_prob_lst
         final_prob = [0 for _ in range(len(prob_lst[0]))]
         for i in range(len(prob_lst)):
             final_prob = np.add(np.multiply(prob_lst[i], score_lst[i]), final_prob)
-        
-        print('[Final]')
-        self.print_precision_recall([final_prob], indices)
-        
+
         # Get final clean idx
         final_clean_idx, final_noisy_idx = self.get_clean_idx(final_prob, indices)
-        
+
         # Update loader with final clean idxs
         self.ldr_train = DataLoader(DatasetSplit(self.dataset, final_clean_idx, real_idx_return=True),
                                     batch_size=self.args.local_bs,
@@ -518,12 +477,12 @@ class LocalUpdateFedRN(BaseLocalUpdate):
                                     num_workers=self.args.num_workers,
                                     pin_memory=True,
                                     )
-        
+
         # local training
-        w, loss = self.train_single_model(client_num, net)        
+        w, loss = self.train_single_model(net)
         expertise = self.get_expertise()
         arbitrary_output = self.get_arbitrary_output()
-        
+
         return w, loss
 
 
@@ -761,13 +720,13 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             pin_memory=True,
         )
 
-    def train(self, client_num, net, net2=None):
+    def train(self, net, net2=None):
         if self.args.g_epoch <= self.args.warmup_epochs:
-            return self.train_multiple_models(client_num, net, net2)
+            return self.train_multiple_models(net, net2)
         else:
-            return self.train_2_phase(client_num, net, net2)
+            return self.train_2_phase(net, net2)
 
-    def train_2_phase(self, client_num, net, net2):
+    def train_2_phase(self, net, net2):
         epoch_loss1 = []
         epoch_loss2 = []
 
