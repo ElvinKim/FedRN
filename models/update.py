@@ -332,90 +332,11 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             num_workers=self.args.num_workers,
             pin_memory=True,
         )
+        self.data_indices = np.array(idxs)
         self.expertise = 0.5
         self.arbitrary_output = torch.rand((1, self.args.num_classes))
 
-    def fit_gmm(self, nets):
-
-        losses_lst, losses = [[] for i in range(len(nets))], [[] for i in range(len(nets))]
-        prob_lst = [[] for i in range(len(nets))]
-        idx_lst = []
-
-        for net in nets:
-            net.eval()
-
-        with torch.no_grad():
-            for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
-                inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
-                for i, net in enumerate(nets):
-                    outputs = net(inputs)
-                    loss = self.CE(outputs, targets)
-                    losses_lst[i].append(loss)
-                idx_lst.append(idxs.cpu().numpy())
-
-        for i in range(len(nets)):
-            losses[i] = torch.cat(losses_lst[i]).cpu().numpy()
-        indices = np.concatenate(idx_lst)
-
-        for i in range(len(nets)):
-            losses[i] = (losses[i] - losses[i].min()) / (losses[i].max() - losses[i].min())
-            input_loss = losses[i].reshape(-1, 1)
-            gmm = GaussianMixture(n_components=2, max_iter=100, tol=1e-2, reg_covar=5e-4)
-            gmm.fit(input_loss)
-            prob = gmm.predict_proba(input_loss)
-            prob_lst[i] = prob[:, gmm.means_.argmin()]
-
-        return prob_lst, indices
-
-    def get_clean_idx(self, prob, indices):
-        threshold = self.args.p_threshold
-        pred = (prob > threshold)
-        pred_clean_data = pred.nonzero()[0]
-        pred_clean_data = indices[pred_clean_data]
-        pred_noisy_data = (1 - pred).nonzero()[0]
-        pred_noisy_data = indices[pred_noisy_data]
-
-        return pred_clean_data, pred_noisy_data
-
-    def head_finetune(self, neighbor_lst, pred_clean_idx):
-        loader = DataLoader(
-            DatasetSplit(self.dataset, pred_clean_idx, real_idx_return=True),
-            batch_size=self.args.local_bs,
-            shuffle=True,
-            num_workers=self.args.num_workers,
-            pin_memory=True,
-        )
-
-        n_opt_lst = []
-
-        for n_net in neighbor_lst:
-            n_net.train()
-            body_params = [p for name, p in n_net.named_parameters() if 'linear' not in name]
-            head_params = [p for name, p in n_net.named_parameters() if 'linear' in name]
-
-            optimizer = torch.optim.SGD([
-                {'params': head_params, 'lr': self.args.lr,
-                 'momentum': self.args.momentum,
-                 'weight_decay': self.args.weight_decay},
-                {'params': body_params, 'lr': 0.0},
-            ])
-            n_opt_lst.append(optimizer)
-
-        for batch_idx, (inputs, targets, items, idxs) in enumerate(loader):
-            inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
-
-            for n_net, n_opt in zip(neighbor_lst, n_opt_lst):
-                n_net.zero_grad()
-
-                outputs = n_net(inputs)
-                loss = self.loss_func(outputs, targets)
-                loss.backward()
-
-                n_opt.step()
-
-        return neighbor_lst
-
-    def get_expertise(self):
+    def set_expertise(self):
         self.net1.eval()
         correct = 0
         n_total = len(self.ldr_eval.dataset)
@@ -429,42 +350,107 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             expertise = correct / n_total
 
         self.expertise = expertise
-        return expertise
 
-    def get_arbitrary_output(self):
+    def set_arbitrary_output(self):
         arbitrary_output = self.net1(self.gaussian_noise.to(self.args.device))
         self.arbitrary_output = arbitrary_output
-        return arbitrary_output
 
     def train_phase1(self, net):
         # local training
         w, loss = self.train_single_model(net)
-        expertise = self.get_expertise()
-        arbitrary_output = self.get_arbitrary_output()
-
+        self.set_expertise()
+        self.set_arbitrary_output()
         return w, loss
 
-    def train_phase2(self, net, prev_score, neighbor_lst, neighbor_score_lst):
+    def fit_gmm(self, net):
+        losses = []
+        net.eval()
+
+        with torch.no_grad():
+            for batch_idx, (inputs, targets, items, idxs) in enumerate(self.ldr_eval):
+                inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
+                outputs = net(inputs)
+                loss = self.CE(outputs, targets)
+                losses.append(loss)
+
+        losses = torch.cat(losses).cpu().numpy()
+        losses = (losses - losses.min()) / (losses.max() - losses.min())
+        input_loss = losses.reshape(-1, 1)
+
+        gmm = GaussianMixture(n_components=2, max_iter=100, tol=1e-2, reg_covar=5e-4)
+        gmm.fit(input_loss)
+        prob = gmm.predict_proba(input_loss)
+        prob_list = prob[:, gmm.means_.argmin()]
+
+        return prob_list
+
+    def get_clean_idx(self, prob):
+        threshold = self.args.p_threshold
+        pred = (prob > threshold)
+        pred_clean_data = pred.nonzero()[0]
+        pred_clean_data = self.data_indices[pred_clean_data]
+        pred_noisy_data = (1 - pred).nonzero()[0]
+        pred_noisy_data = self.data_indices[pred_noisy_data]
+
+        return pred_clean_data, pred_noisy_data
+
+    def finetune_head(self, neighbor_list, pred_clean_idx):
+        loader = DataLoader(
+            DatasetSplit(self.dataset, pred_clean_idx, real_idx_return=True),
+            batch_size=self.args.local_bs,
+            shuffle=True,
+            num_workers=self.args.num_workers,
+            pin_memory=True,
+        )
+
+        optimizer_list = []
+        for neighbor_net in neighbor_list:
+            neighbor_net.train()
+            body_params = [p for name, p in neighbor_net.named_parameters() if 'linear' not in name]
+            head_params = [p for name, p in neighbor_net.named_parameters() if 'linear' in name]
+
+            optimizer = torch.optim.SGD([
+                {'params': head_params, 'lr': self.args.lr,
+                 'momentum': self.args.momentum,
+                 'weight_decay': self.args.weight_decay},
+                {'params': body_params, 'lr': 0.0},
+            ])
+            optimizer_list.append(optimizer)
+
+        for batch_idx, (inputs, targets, items, idxs) in enumerate(loader):
+            inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
+
+            for neighbor_net, optimizer in zip(neighbor_list, optimizer_list):
+                neighbor_net.zero_grad()
+
+                outputs = neighbor_net(inputs)
+                loss = self.loss_func(outputs, targets)
+                loss.backward()
+                optimizer.step()
+
+        return neighbor_list
+
+    def train_phase2(self, net, prev_score, neighbor_list, neighbor_score_list):
         # Prev fit GMM & get clean idx
-        prob, indices = self.fit_gmm([self.net1])
-        pred_clean_idx, pred_noisy_idx = self.get_clean_idx(prob[0], indices)
+        prob = self.fit_gmm(self.net1)
+        pred_clean_idx, pred_noisy_idx = self.get_clean_idx(prob)
 
-        # Finetune (Only HEAD) neighbors with pred_clean_idx
-        neigbor_lst = self.head_finetune(neighbor_lst, pred_clean_idx)
+        prob_list = [prob]
+        neighbor_list = self.finetune_head(neighbor_list, pred_clean_idx)
+        for neighbor_net in neighbor_list:
+            neighbor_prob = self.fit_gmm(neighbor_net)
+            prob_list.append(neighbor_prob)
 
-        # Neighbors fit GMM
-        neighbor_prob_lst, indices = self.fit_gmm(neigbor_lst)
+        # Scores
+        score_list = [prev_score] + neighbor_score_list
+        score_list = [score / sum(score_list) for score in score_list]
 
         # Get final prob
-        score_lst = [prev_score] + neighbor_score_lst
-        score_lst = [i / sum(score_lst) for i in score_lst]
-        prob_lst = prob + neighbor_prob_lst
-        final_prob = [0 for _ in range(len(prob_lst[0]))]
-        for i in range(len(prob_lst)):
-            final_prob = np.add(np.multiply(prob_lst[i], score_lst[i]), final_prob)
-
+        final_prob = np.zeros(len(prob))
+        for prob, score in zip(prob_list, score_list):
+            final_prob = np.add(final_prob, np.multiply(prob, score))
         # Get final clean idx
-        final_clean_idx, final_noisy_idx = self.get_clean_idx(final_prob, indices)
+        final_clean_idx, final_noisy_idx = self.get_clean_idx(final_prob)
 
         # Update loader with final clean idxs
         self.ldr_train = DataLoader(DatasetSplit(self.dataset, final_clean_idx, real_idx_return=True),
@@ -473,12 +459,10 @@ class LocalUpdateFedRN(BaseLocalUpdate):
                                     num_workers=self.args.num_workers,
                                     pin_memory=True,
                                     )
-
         # local training
         w, loss = self.train_single_model(net)
-        expertise = self.get_expertise()
-        arbitrary_output = self.get_arbitrary_output()
-
+        self.set_expertise()
+        self.set_arbitrary_output()
         return w, loss
 
 
