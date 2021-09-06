@@ -135,7 +135,7 @@ class SemiLoss:
 
 
 def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None,
-                             noise_logger=None, gaussian_noise=None, user_noisy_data=None):
+                             gaussian_noise=None, user_noisy_data=None):
     local_update_objects = []
     for idx, noise_rate in zip(range(args.num_users), noise_rates):
         local_update_args = dict(
@@ -143,7 +143,6 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
             user_idx=idx,
             dataset=dataset_train,
             idxs=dict_users[idx],
-            noise_logger=noise_logger,
         )
 
         if args.method == 'default':
@@ -180,8 +179,6 @@ class BaseLocalUpdate:
             idxs=None,
             idx_return=False,
             real_idx_return=False,
-            is_babu=False,
-            noise_logger=None,
             gaussian_noise=None,
     ):
         self.args = args
@@ -190,7 +187,6 @@ class BaseLocalUpdate:
         self.dataset = dataset
         self.idxs = idxs
         self.user_idx = user_idx
-        self.noise_logger = noise_logger
 
         self.idx_return = idx_return
         self.real_idx_return = real_idx_return
@@ -206,7 +202,6 @@ class BaseLocalUpdate:
         self.total_epochs = 0
         self.epoch = 0
         self.batch_idx = 0
-        self.is_babu = is_babu
 
         self.net1 = get_model(self.args)
         self.net2 = get_model(self.args)
@@ -217,13 +212,6 @@ class BaseLocalUpdate:
 
         self.gaussian_noise = gaussian_noise
 
-    def update_label_accuracy(self):
-        self.noise_logger.write(
-            epoch=self.args.g_epoch,
-            user_id=self.user_idx,
-            total_epochs=self.total_epochs,
-        )
-
     def train(self, client_num, net, net2=None):
         if net2 is None:
             return self.train_single_model(client_num, net)
@@ -233,19 +221,12 @@ class BaseLocalUpdate:
     def train_single_model(self, client_num, net):
         net.train()
 
-        if self.is_babu:
-            body_params = [p for name, p in net.named_parameters() if 'linear' not in name]
-            head_params = [p for name, p in net.named_parameters() if 'linear' in name]
-
-            optimizer = torch.optim.SGD([{'params': body_params, 'lr': self.args.lr, 'momentum': self.args.momentum},
-                                         {'params': head_params, 'lr': 0.0}])
-        else:
-            optimizer = torch.optim.SGD(
-                net.parameters(),
-                lr=self.args.lr,
-                momentum=self.args.momentum,
-                weight_decay=self.args.weight_decay,
-            )
+        optimizer = torch.optim.SGD(
+            net.parameters(),
+            lr=self.args.lr,
+            momentum=self.args.momentum,
+            weight_decay=self.args.weight_decay,
+        )
 
         epoch_loss = []
         for epoch in range(self.args.local_ep):
@@ -331,8 +312,6 @@ class BaseLocalUpdate:
 
         elif self.real_idx_return:
             images, labels, _, ids = batch
-            self.noise_logger.update(ids)
-
         else:
             images, labels = batch
 
@@ -354,12 +333,11 @@ class BaseLocalUpdate:
         pass
 
     def on_epoch_end(self):
-        if self.args.method != "default":
-            self.update_label_accuracy()
+        pass
 
 
 class LocalUpdateFedRN(BaseLocalUpdate):
-    def __init__(self, args, dataset=None, user_idx=None, idxs=None, noise_logger=None,
+    def __init__(self, args, dataset=None, user_idx=None, idxs=None,
                  gaussian_noise=None, user_noisy_data=None):
         super().__init__(
             args=args,
@@ -367,7 +345,6 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             user_idx=user_idx,
             idxs=idxs,
             real_idx_return=True,
-            noise_logger=noise_logger,
             gaussian_noise=gaussian_noise,
         )
         self.user_noisy_data = user_noisy_data
@@ -568,14 +545,13 @@ class LocalUpdateFedRN(BaseLocalUpdate):
 
 
 class LocalUpdateSELFIE(BaseLocalUpdate):
-    def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_rate=0, noise_logger=None):
+    def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_rate=0):
         super().__init__(
             args=args,
             user_idx=user_idx,
             dataset=dataset,
             idxs=idxs,
             real_idx_return=True,
-            noise_logger=noise_logger
         )
 
         self.loss_func = nn.CrossEntropyLoss(reduction='none')
@@ -616,20 +592,18 @@ class LocalUpdateSELFIE(BaseLocalUpdate):
             log_probs = net(images)
             loss_array = self.loss_func(log_probs, labels)
 
-        self.noise_logger.update(ids)
         loss = loss_array.mean()
         return loss
 
 
 class LocalUpdateJointOptim(BaseLocalUpdate):
-    def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_logger=None):
+    def __init__(self, args, user_idx=None, dataset=None, idxs=None):
         super().__init__(
             args=args,
             user_idx=user_idx,
             dataset=dataset,
             idxs=idxs,
             real_idx_return=True,
-            noise_logger=noise_logger
         )
         self.corrector = JointOptimCorrector(
             queue_size=args.queue_size,
@@ -653,7 +627,6 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
 
         loss = self.joint_optim_loss(logits, probs, labels)
         self.corrector.update_probability_history(ids, probs.cpu().detach())
-        self.noise_logger.update(ids)
 
         return loss
 
@@ -682,7 +655,7 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
 
 
 class LocalUpdateCoteaching(BaseLocalUpdate):
-    def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_logger=None, is_coteaching_plus=False,
+    def __init__(self, args, user_idx=None, dataset=None, idxs=None, is_coteaching_plus=False,
                  gaussian_noise=None):
         super().__init__(
             args=args,
@@ -690,7 +663,6 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
             dataset=dataset,
             idxs=idxs,
             real_idx_return=True,
-            noise_logger=noise_logger,
             gaussian_noise=gaussian_noise,
         )
         self.loss_func = nn.CrossEntropyLoss(reduce=False)
@@ -719,7 +691,6 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
         else:
             loss1, loss2, indices = self.loss_coteaching(**loss_args)
 
-        self.noise_logger.update(ids[indices])
         return loss1, loss2
 
     def loss_coteaching(self, y_pred1, y_pred2, y_true, forget_rate):
@@ -784,14 +755,13 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
 
 
 class LocalUpdateDivideMix(BaseLocalUpdate):
-    def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_logger=None):
+    def __init__(self, args, user_idx=None, dataset=None, idxs=None):
         super().__init__(
             args=args,
             user_idx=user_idx,
             dataset=dataset,
             idxs=idxs,
             idx_return=True,
-            noise_logger=noise_logger
         )
         self.CE = nn.CrossEntropyLoss(reduction='none')
         self.CEloss = nn.CrossEntropyLoss()
@@ -821,9 +791,6 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
         for ep in range(self.args.local_ep):
             prob_dict1, label_idx1, unlabel_idx1 = self.update_probabilties_split_data_indices(net, self.loss_history1)
             prob_dict2, label_idx2, unlabel_idx2 = self.update_probabilties_split_data_indices(net2, self.loss_history2)
-
-            self.noise_logger.update(label_idx1)
-            self.update_label_accuracy()
 
             # train net1
             loss1 = self.divide_mix(

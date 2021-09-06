@@ -12,7 +12,7 @@ import torchvision
 import torch
 from torch.utils.data import DataLoader
 
-from utils import Logger, NoiseLogger, load_dataset
+from utils import load_dataset
 from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
@@ -172,9 +172,6 @@ if __name__ == '__main__':
     ##############################
     # Training
     ##############################
-    logger = Logger(args, args.send_2_models)
-    noise_logger = NoiseLogger(args, user_noisy_data, dict_users)
-
     forget_rate_schedule = []
 
     if args.method in ['coteaching', 'coteaching+']:
@@ -217,7 +214,6 @@ if __name__ == '__main__':
         dataset_train=dataset_train,
         dict_users=dict_users,
         noise_rates=pred_user_noise_rates,
-        noise_logger=noise_logger,
         gaussian_noise=gaussian_noise,
         user_noisy_data=user_noisy_data
     )
@@ -250,11 +246,6 @@ if __name__ == '__main__':
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    
-    f = open(result_dir + result_f + ".csv", 'w', newline='')
-    wr = csv.writer(f)
-    wr.writerow(['epoch', 'user_id', 'val_acc'])
-
 
     for epoch in range(args.epochs):
         if (epoch + 1) in args.schedule:
@@ -380,9 +371,5 @@ if __name__ == '__main__':
 
             results = {**results, **results2}
 
-        logger.write(epoch=epoch + 1, **results)
-
-    f.close()
-    logger.close()
-    noise_logger.close()
-    print("time :", time.time() - start)
+        print('Round {:3d}'.format(epoch))
+        print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
