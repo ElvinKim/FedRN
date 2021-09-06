@@ -1,9 +1,7 @@
 import csv
 import os
 from torchvision import transforms
-
 from .cifar import CIFAR10, CIFAR100
-from .mnist import MNIST
 
 
 def load_dataset(dataset):
@@ -14,36 +12,7 @@ def load_dataset(dataset):
     dataset_test = None
     num_classes = 0
 
-    if dataset == 'mnist':
-        from six.moves import urllib
-
-        opener = urllib.request.build_opener()
-        opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-        urllib.request.install_opener(opener)
-
-        trans_mnist = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-        ])
-        dataset_args = dict(
-            root='./data/mnist',
-            download=True,
-        )
-        dataset_train = MNIST(
-            train=True,
-            transform=trans_mnist,
-            noise_type="clean",
-            **dataset_args,
-        )
-        dataset_test = MNIST(
-            train=False,
-            transform=transforms.ToTensor(),
-            noise_type="clean",
-            **dataset_args,
-        )
-        num_classes = 10
-
-    elif dataset == 'cifar10':
+    if dataset == 'cifar10':
         trans_cifar10_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),

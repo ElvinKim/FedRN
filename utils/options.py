@@ -36,13 +36,12 @@ def args_parser():
     parser.add_argument('--model', type=str, default='cnn4conv', choices=['cnn4conv'], help='model name')
 
     # other arguments
-    parser.add_argument('--dataset', type=str, default='mnist', help="name of dataset",
-                        choices=['mnist', 'cifar10', 'cifar100'])
+    parser.add_argument('--dataset', type=str, default='cifar10', help="name of dataset",
+                        choices=['cifar10', 'cifar100'])
     parser.add_argument('--iid', action='store_true', help='whether i.i.d or not')
     parser.add_argument('--num_classes', type=int, default=10, help="number of classes")
     parser.add_argument('--num_channels', type=int, default=3, help="number of channels of imges")
     parser.add_argument('--gpu', type=int, default=0, help="GPU ID, -1 for CPU")
-    parser.add_argument('--stopping_rounds', type=int, default=10, help='rounds of early stopping')
     parser.add_argument('--verbose', action='store_true', help='verbose print')
     parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
@@ -54,7 +53,6 @@ def args_parser():
     parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float,
                         help='Should be 2 noise rates for each group: min_group_noise_rate max_group_noise_rate but '
                              'if there is only 1 group and 1 noise rate, same noise rate will be applied to all users')
-    parser.add_argument('--experiment', type=str, help='[case1, case2]', default='case1')
 
     # SELFIE / Joint optimization arguments
     parser.add_argument('--queue_size', type=int, default=15, help='size of history queue')
