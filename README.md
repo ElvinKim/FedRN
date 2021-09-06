@@ -2,14 +2,14 @@
 
 
 ## Abstract
-Robustness is becoming another important challenge of fed-erated  learning  in  that  the  data  collection  process  in  eachclient is naturally accompanied by noisy labels. However, itis far more complex and challenging owing to varying lev-els of data heterogeneity and noise over clients, which dras-tically exacerbates the client-to-client performance discrep-ancy.  In  this  work,  we  propose  a  robust  federated  learningmethod  called  FedRN,  which  exploits  k-reliable  neighborswith high data expertise and similarity. They help mitigate thegap between low- and high-performance clients by trainingwith only the selected set of clean examples, which identifiedby their emsembled mixture model. We demonstrate the su-perioity of FedRN by extensive evaluation on three real-worldor synthetic benchmark datasets. Compared with existing ro-bust training methods, the results showed that FedRN signif-icantly improved the test accuracy in the presence of noisylabels.
+Robustness is becoming another important challenge of federated learning in that the data collection process in each client is naturally accompanied by noisy labels. However, it is far more complex and challenging owing to varying levels of data heterogeneity and noise over clients, which exacerbates the client-to-client performance discrepancy. In this work, we propose a robust federated learning method called FedRN, which exploits k-reliable neighbors with high data expertise and similarity. Our method helps mitigate the gap between low- and high-performance clients by training with only a selected set of clean examples, identified by emsembled mixture models. We demonstrate the superiority of FedRN via extensive evaluations on three real-world or synthetic benchmark datasets. Compared with existing robust training methods, the results show that FedRN significantly improves the test accuracy in the presence of noisy labels.
 
 ![overview](https://user-images.githubusercontent.com/12638561/132161397-d433a036-0757-4ae0-8c19-aa8a13e339f8.png)
 
 
 Our main contributions are summarized as follows:
 * To the best of our knowledge, this is the first work to present the problem of client-to-client performance discrepancy, which worsens considerably in the presence of noisy labels for federated learning. 
-* FedRN remarkably improves the overall robustness without much performance discrepancy owing to the use of $k$-reliable neighbors.
+* FedRN remarkably improves the overall robustness without much performance discrepancy owing to the use of k-reliable neighbors.
 * FedRN significantly outperforms state-of-the art methods on three real-world or synthetic benchmark datasets with varying levels of data heterogeneity and label noise.
 
 
