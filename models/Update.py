@@ -128,7 +128,7 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
         )
 
         if args.method == 'default':
-            local_update_object = BaseLocalUpdate(**local_update_args, gaussian_noise=gaussian_noise)
+            local_update_object = BaseLocalUpdate(**local_update_args)
 
         elif args.method == 'fedrn':
             local_update_object = LocalUpdateFedRN(**local_update_args, gaussian_noise=gaussian_noise)
@@ -159,7 +159,6 @@ class BaseLocalUpdate:
             idxs=None,
             idx_return=False,
             real_idx_return=False,
-            gaussian_noise=None,
     ):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
@@ -190,8 +189,6 @@ class BaseLocalUpdate:
 
         self.last_updated = 0
 
-        self.gaussian_noise = gaussian_noise
-
     def train(self, net, net2=None):
         if net2 is None:
             return self.train_single_model(net)
@@ -221,7 +218,7 @@ class BaseLocalUpdate:
                 optimizer.step()
 
                 if self.args.verbose and batch_idx % 10 == 0:
-                    print(f"Update Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
+                    print(f"Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
                           f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss.item():.6f}")
 
                 batch_loss.append(loss.item())
@@ -266,7 +263,7 @@ class BaseLocalUpdate:
                 optimizer2.step()
 
                 if self.args.verbose and batch_idx % 10 == 0:
-                    print(f"Update Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
+                    print(f"Epoch: {epoch} [{batch_idx}/{len(self.ldr_train)}"
                           f"({100. * batch_idx / len(self.ldr_train):.0f}%)]\tLoss: {loss1.item():.6f}"
                           f"\tLoss: {loss2.item():.6f}")
 
@@ -317,16 +314,15 @@ class BaseLocalUpdate:
 
 
 class LocalUpdateFedRN(BaseLocalUpdate):
-    def __init__(self, args, dataset=None, user_idx=None, idxs=None,
-                 gaussian_noise=None):
+    def __init__(self, args, dataset=None, user_idx=None, idxs=None, gaussian_noise=None):
         super().__init__(
             args=args,
             dataset=dataset,
             user_idx=user_idx,
             idxs=idxs,
             real_idx_return=True,
-            gaussian_noise=gaussian_noise,
         )
+        self.gaussian_noise = gaussian_noise,
         self.CE = nn.CrossEntropyLoss(reduction='none')
 
         self.ldr_eval = DataLoader(
@@ -597,15 +593,13 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
 
 
 class LocalUpdateCoteaching(BaseLocalUpdate):
-    def __init__(self, args, user_idx=None, dataset=None, idxs=None, is_coteaching_plus=False,
-                 gaussian_noise=None):
+    def __init__(self, args, user_idx=None, dataset=None, idxs=None, is_coteaching_plus=False):
         super().__init__(
             args=args,
             user_idx=user_idx,
             dataset=dataset,
             idxs=idxs,
             real_idx_return=True,
-            gaussian_noise=gaussian_noise,
         )
         self.loss_func = nn.CrossEntropyLoss(reduce=False)
         self.is_coteaching_plus = is_coteaching_plus
