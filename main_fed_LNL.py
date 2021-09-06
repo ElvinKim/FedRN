@@ -21,7 +21,6 @@ from models.nets import get_model
 from models.test import test_img
 from models.update import get_local_update_objects
 
-
 if __name__ == '__main__':
     start = time.time()
     # parse args
@@ -69,14 +68,14 @@ if __name__ == '__main__':
             num_users=args.num_users,
             num_shards=args.num_shards,
         )
-  
+
     elif args.partition == 'dirichlet':
         dict_users = sample_dirichlet(
             labels=labels,
             num_users=args.num_users,
             alpha=args.dd_alpha,
         )
- 
+
     ##############################
     # Add label noise to data
     ##############################

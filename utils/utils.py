@@ -56,4 +56,3 @@ def noisify_label(true_label, num_classes=10, noise_type="symmetric"):
 
     elif noise_type == "pairflip":
         return (true_label - 1) % num_classes
-

@@ -10,7 +10,7 @@ def test_img(net_g, data_loader, args):
     test_loss = 0
     correct = 0
     n_total = len(data_loader.dataset)
-    
+
     for idx, (data, target) in enumerate(data_loader):
         if args.gpu != -1:
             data, target = data.to(args.device), target.to(args.device)

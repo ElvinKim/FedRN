@@ -131,7 +131,7 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
             local_update_object = BaseLocalUpdate(**local_update_args)
 
         elif args.method == 'fedrn':
-            local_update_object = LocalUpdateFedRN(**local_update_args, gaussian_noise=gaussian_noise)
+            local_update_object = LocalUpdateFedRN(gaussian_noise=gaussian_noise, **local_update_args)
 
         elif args.method == 'selfie':
             local_update_object = LocalUpdateSELFIE(noise_rate=noise_rate, **local_update_args)

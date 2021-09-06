@@ -18,7 +18,7 @@ class LocalModelWeights:
         if self.user_data_size and \
                 all([self.user_data_size[0] == data_size for data_size in self.user_data_size]):
             self.user_data_size = [1] * len(self.user_data_size)
-        
+
         w_glob = net_glob.state_dict()
         if self.all_clients:
             print("Aggregation over all clients")
@@ -56,5 +56,5 @@ def FedAvg(w, average_weights):
         for i in range(1, len(w)):
             w_avg[k] += w[i][k] * average_weights[i]
         w_avg[k] = torch.div(w_avg[k], sum(average_weights))
-            
+
     return w_avg

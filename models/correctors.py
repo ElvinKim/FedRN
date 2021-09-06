@@ -14,7 +14,7 @@ class JointOptimCorrector:
         self.probability_history = torch.zeros(data_size, queue_size, num_classes)
 
         # labels
-        #self.hard_labels = torch.zeros(data_size, dtype=torch.int64)
+        # self.hard_labels = torch.zeros(data_size, dtype=torch.int64)
         self.hard_labels = torch.zeros(data_size, num_classes)
         self.soft_labels = torch.zeros(data_size, num_classes)
 
@@ -22,7 +22,7 @@ class JointOptimCorrector:
         data_indices = []
 
         next_index = max(self.id_2_data_index.values()) + 1 \
-            if self.id_2_data_index\
+            if self.id_2_data_index \
             else 0
 
         for _id in ids:
@@ -59,7 +59,7 @@ class JointOptimCorrector:
 
     def update_labels(self):
         self.soft_labels = self.probability_history.mean(dim=1)
-        h_labels = torch.argmax(self.soft_labels, dim=1).reshape(-1,1)
+        h_labels = torch.argmax(self.soft_labels, dim=1).reshape(-1, 1)
         self.hard_labels = torch.zeros_like(self.soft_labels).scatter_(1, h_labels, 1.)
 
     def clear_data(self):
@@ -125,7 +125,7 @@ class SelfieCorrector:
                     pred_label_2_counts[pred_label] += 1
 
             negative_entropy = 0.0
-            mode_label = None    # most common label
+            mode_label = None  # most common label
             for pred_label, count in pred_label_2_counts.items():
                 prob = float(count) / float(self.queue_size)
                 negative_entropy += prob * np.log(prob)
