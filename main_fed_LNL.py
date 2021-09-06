@@ -21,7 +21,6 @@ from models.Update import get_local_update_objects, DatasetSplit
 from models.Nets import get_model
 from models.Fed import LocalModelWeights
 from models.test import test_img
-import nsml
 import time
 import os
 import csv
@@ -385,17 +384,6 @@ if __name__ == '__main__':
             results = {**results, **results2}
 
         logger.write(epoch=epoch + 1, **results)
-
-        if nsml.IS_ON_NSML:
-            nsml_results = {result_key.replace('_', '__'): result_value
-                            for result_key, result_value in results.items()}
-            nsml.report(
-                summary=True,
-                step=epoch,
-                epoch=epoch,
-                lr=args.lr,
-                **nsml_results,
-            )
 
     f.close()
     logger.close()

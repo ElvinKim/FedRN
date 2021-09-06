@@ -2,7 +2,6 @@ import csv
 import os
 from torchvision import transforms
 
-import nsml
 from .cifar import CIFAR10, CIFAR100
 from .mnist import MNIST
 
@@ -59,13 +58,13 @@ def load_dataset(dataset):
         )
         dataset_train = CIFAR10(
             root='./data/cifar',
-            download=not nsml.IS_ON_NSML,
+            download=True,
             train=True,
             transform=trans_cifar10_train,
         )
         dataset_test = CIFAR10(
             root='./data/cifar',
-            download=not nsml.IS_ON_NSML,
+            download=True,
             train=False,
             transform=trans_cifar10_val,
         )
@@ -86,13 +85,13 @@ def load_dataset(dataset):
         )
         dataset_train = CIFAR100(
             root='./data/cifar100',
-            download=not nsml.IS_ON_NSML,
+            download=True,
             train=True,
             transform=trans_cifar100_train,
         )
         dataset_test = CIFAR100(
             root='./data/cifar100',
-            download=not nsml.IS_ON_NSML,
+            download=True,
             train=False,
             transform=trans_cifar100_val,
         )

@@ -12,7 +12,6 @@ else:
 
 import torch.utils.data as data
 from .utils import download_url, check_integrity, noisify
-import nsml
 
 
 class BaseCIFARDataset(data.Dataset):
@@ -51,7 +50,7 @@ class BaseCIFARDataset(data.Dataset):
                  download=False,
                  random_state=0):
 
-        self.root = nsml.DATASET_PATH if nsml.IS_ON_NSML else os.path.expanduser(root)
+        self.root = os.path.expanduser(root)
         self.transform = transform
         self.target_transform = target_transform
         self.train = train  # training set or test set
@@ -194,9 +193,9 @@ class CIFAR10(BaseCIFARDataset):
             downloaded again.
 
     """
-    base_folder = 'train' if nsml.IS_ON_NSML else 'cifar-10-batches-py'
+    base_folder = 'cifar-10-batches-py'
     url = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
-    filename = "cifar.tar" if nsml.IS_ON_NSML else "cifar-10-python.tar.gz"
+    filename = "cifar-10-python.tar.gz"
     tgz_md5 = 'c58f30108f718f92721af3b95e74349a'
     train_list = [
         ['data_batch_1', 'c99cafc152244af753f735de768cd75f'],
@@ -322,17 +321,9 @@ class CIFAR100(BaseCIFARDataset):
             downloaded again.
 
     """
-    base_folder = 'train/cifar-100-python' if nsml.IS_ON_NSML else 'cifar-100-python'
+    base_folder = 'cifar-100-python'
     url = "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz"
-
-    if nsml.IS_ON_NSML:
-        session_name = nsml.SESSION_NAME.lower()
-        if session_name.startswith("kr") or session_name.startswith("shop"):
-            filename = "CIFAR100.tar"
-        else:
-            filename = "train.tar"
-    else:
-        filename = "cifar-10-python.tar.gz"
+    filename = "cifar-10-python.tar.gz"
 
     tgz_md5 = 'eb9058c3a382ffc7106e4002c42a8d85'
     train_list = [

@@ -1,7 +1,6 @@
 import os
 import csv
 import numpy as np
-import nsml
 import torch
 from torch import nn, autograd
 from torch.utils.data import DataLoader, Dataset
@@ -17,7 +16,7 @@ class Logger:
         else:
             result_dir = './save/{}/'.format(args.save_dir)
 
-        result_f = 'nei[{}]_alpha[{}]_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
+        result_f = 'nei[{}]_alpha[{}]_fedLNL_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
             args.num_neighbors,
             args.w_alpha,
             args.dataset,
@@ -33,27 +32,8 @@ class Logger:
             args.partition,
         )
 
-        if nsml.IS_ON_NSML:
-            result_f = 'accuracy'
-        else:
-            result_f = 'nei[{}]_alpha[{}]_fedLNL_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
-                args.num_neighbors,
-                args.w_alpha,
-                args.dataset,
-                args.method,
-                args.model,
-                args.epochs,
-                args.local_bs,
-                args.local_ep,
-                args.iid,
-                args.noise_type_lst,
-                args.noise_group_num,
-                args.group_noise_rate,
-                args.partition,
-            )
-
-            if args.method in ['coteaching', 'coteaching+']:
-                result_f += "_FR[{}]_FRS[{}]".format(args.forget_rate, args.forget_rate_schedule)
+        if args.method in ['coteaching', 'coteaching+']:
+            result_f += "_FR[{}]_FRS[{}]".format(args.forget_rate, args.forget_rate_schedule)
 
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)
@@ -97,24 +77,21 @@ class NoiseLogger:
         else:
             result_dir = './save/{}/'.format(args.save_dir)
 
-        if nsml.IS_ON_NSML:
-            result_f = 'noise_label_accuracy'
-        else:
-            result_f = 'nei[{}]_alpha[{}]_fedLNL_noise_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
-                args.num_neighbors,
-                args.w_alpha,
-                args.dataset,
-                args.method,
-                args.model,
-                args.epochs,
-                args.local_bs,
-                args.local_ep,
-                args.iid,
-                args.noise_type_lst,
-                args.noise_group_num,
-                args.group_noise_rate,
-                args.partition,
-            )
+        result_f = 'nei[{}]_alpha[{}]_fedLNL_noise_{}_{}_{}_{}_BS[{}]_LE[{}]_IID[{}]_NT[{}]_NGN[{}]_GNR[{}]_PT[{}]'.format(
+            args.num_neighbors,
+            args.w_alpha,
+            args.dataset,
+            args.method,
+            args.model,
+            args.epochs,
+            args.local_bs,
+            args.local_ep,
+            args.iid,
+            args.noise_type_lst,
+            args.noise_group_num,
+            args.group_noise_rate,
+            args.partition,
+        )
 
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)
