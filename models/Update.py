@@ -38,21 +38,6 @@ class DatasetSplit(Dataset):
             return image, label
 
 
-class DatasetSplitHS(Dataset):
-    def __init__(self, dataset, idxs):
-        self.dataset = dataset
-        self.idxs = list(idxs)
-
-    def __len__(self):
-        return len(self.idxs)
-
-    def __getitem__(self, item):
-        item = int(item)
-        img, target, soft_label, prediction, index = self.dataset[self.idxs[item]]
-
-        return img, target, soft_label, prediction, index
-
-
 class PairProbDataset(Dataset):
     def __init__(self, dataset, idxs, prob, idx_return=False):
         self.dataset = dataset
