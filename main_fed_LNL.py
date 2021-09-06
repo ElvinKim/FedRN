@@ -12,14 +12,14 @@ import torch
 from torch.utils.data import DataLoader
 
 from utils import load_dataset
-from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.options import args_parser
+from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.utils import noisify_label
 
-from models.Update import get_local_update_objects
-from models.Nets import get_model
-from models.Fed import LocalModelWeights
+from models.fed import LocalModelWeights
+from models.nets import get_model
 from models.test import test_img
+from models.update import get_local_update_objects
 
 
 if __name__ == '__main__':

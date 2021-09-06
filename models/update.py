@@ -11,7 +11,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
 
 from .correctors import SelfieCorrector, JointOptimCorrector
-from .Nets import get_model
+from .nets import get_model
 
 
 class DatasetSplit(Dataset):
