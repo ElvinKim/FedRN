@@ -50,7 +50,7 @@ python main_fed_LNL.py \
 --method fedrn
 ```
 
-### Parameter for learning
+### Parameters for learning
 | Parameter                      | Description                                 |
 | ----------------------------- | ---------------------------------------- |
 | `model` | The model architecture. Options: `cnn`, `mobile`, `cnn4conv`, `mlp`. default = `cnn4conv`. |
@@ -59,7 +59,7 @@ python main_fed_LNL.py \
 | `momentum` | SGD momentum, default = `0.5`. |
 | `epochs` | The total number of communication roudns, default = `500`. |
 
-### Parameter for federated learning
+### Parameters for federated learning
 | Parameter                      | Description                                 |
 | ----------------------------- | ---------------------------------------- |
 | `local_bs` | Local batch size, default = `50`. |
@@ -71,14 +71,14 @@ python main_fed_LNL.py \
 | `dd_alpha` | The concentration parameter alpha for Dirichlet distribution, default = `0.5`. |
 
 
-### Parameter for noisy label
+### Parameters for noisy label
 | Parameter                      | Description                                 |
 | ----------------------------- | ---------------------------------------- |
 | `noise_type_lst` |  Noisy type list. |
 | `noisy_group_num`  | Number of clients corresponding to noisy type. |
 | `group_noise_rate` | The noise rate corresponding to the noisy group. It increases linearly from 0.0 to noise rate for each group. |
 
-### Parameter for RedRN
+### Parameters for RedRN
 | Parameter                      | Description                                 |
 | ----------------------------- | ---------------------------------------- |
 | `num_neighbors` |  The number of reliable neighbors, default = `2` |
