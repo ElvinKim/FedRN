@@ -58,8 +58,7 @@ if __name__ == '__main__':
     labels = np.array(dataset_train.train_labels)
     img_size = dataset_train[0][0].shape  # used to get model
     args.img_size = int(img_size[1])
-    print(img_size)
-    
+
     # Sample users (iid / non-iid)
     if args.iid:
         dict_users = sample_iid(labels, args.num_users)
@@ -133,8 +132,7 @@ if __name__ == '__main__':
     ##############################
     net_glob = get_model(args)
     net_glob = net_glob.to(args.device)
-    print(net_glob)
-    
+
     if args.send_2_models:
         net_glob2 = get_model(args)
         net_glob2 = net_glob2.to(args.device)
@@ -242,23 +240,20 @@ if __name__ == '__main__':
                                                  prev_score,
                                                  neighbor_list,
                                                  neighbor_score_list)
-                    local_weights.update(idx, w)
-                    local_losses.append(copy.deepcopy(loss))
 
             elif args.send_2_models:
                 w, loss, w2, loss2 = local.train(
                     copy.deepcopy(net_glob).to(args.device),
                     copy.deepcopy(net_glob2).to(args.device),
                 )
-                local_weights.update(idx, w)
-                local_losses.append(copy.deepcopy(loss))
                 local_weights2.update(idx, w2)
                 local_losses2.append(copy.deepcopy(loss2))
 
             else:
                 w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
-                local_weights.update(idx, w)
-                local_losses.append(copy.deepcopy(loss))
+
+            local_weights.update(idx, w)
+            local_losses.append(copy.deepcopy(loss))
 
         w_glob = local_weights.average()  # update global weights
         net_glob.load_state_dict(w_glob, strict=False)  # copy weight to net_glob

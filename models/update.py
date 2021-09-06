@@ -322,7 +322,7 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             idxs=idxs,
             real_idx_return=True,
         )
-        self.gaussian_noise = gaussian_noise,
+        self.gaussian_noise = gaussian_noise
         self.CE = nn.CrossEntropyLoss(reduction='none')
 
         self.ldr_eval = DataLoader(
