@@ -1,4 +1,4 @@
-# FedRN: Exploiting $k$-Reliable Neighbors Towards Robust Federated Learning
+# FedRN: Exploiting k-Reliable Neighbors Towards Robust Federated Learning
 
 
 ## Abstract
