@@ -135,7 +135,7 @@ class SemiLoss:
         return Lx + lamb * Lu
 
 
-def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None, net_glob=None,
+def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=None,
                              noise_logger=None, gaussian_noise=None, user_noisy_data=None):
     local_update_objects = []
     for idx, noise_rate in zip(range(args.num_users), noise_rates):

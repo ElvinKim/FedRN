@@ -223,7 +223,6 @@ if __name__ == '__main__':
         dataset_train=dataset_train,
         dict_users=dict_users,
         noise_rates=pred_user_noise_rates,
-        net_glob=net_glob,
         noise_logger=noise_logger,
         gaussian_noise=gaussian_noise,
         user_noisy_data=user_noisy_data
