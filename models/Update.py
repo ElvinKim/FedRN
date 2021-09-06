@@ -160,17 +160,18 @@ def get_local_update_objects(args, dataset_train, dict_users=None, noise_rates=N
             dataset=dataset_train,
             idxs=dict_users[idx],
             noise_logger=noise_logger,
-            user_noisy_data=user_noisy_data[idx]
         )
 
         if args.method == 'default':
             local_update_object = BaseLocalUpdate(**local_update_args, gaussian_noise=gaussian_noise)
 
         elif args.method == 'fedrn':
-            local_update_object = LocalUpdateFedRN(**local_update_args, gaussian_noise=gaussian_noise)
+            local_update_object = LocalUpdateFedRN(**local_update_args, gaussian_noise=gaussian_noise,
+                                                   user_noisy_data=user_noisy_data[idx])
             
         elif args.method == 'rnmix':
-            local_update_object = LocalUpdateRNMix(**local_update_args, gaussian_noise=gaussian_noise)
+            local_update_object = LocalUpdateRNMix(**local_update_args, gaussian_noise=gaussian_noise,
+                                                   user_noisy_data=user_noisy_data[idx])
 
         elif args.method == 'selfie':
             local_update_object = LocalUpdateSELFIE(noise_rate=noise_rate, **local_update_args)
@@ -216,7 +217,6 @@ class BaseLocalUpdate:
             is_babu=False,
             noise_logger=None,
             gaussian_noise=None,
-            user_noisy_data=None
     ):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
@@ -261,10 +261,6 @@ class BaseLocalUpdate:
         self.last_updated = 0
 
         self.gaussian_noise = gaussian_noise
-        
-        self.user_noisy_data = user_noisy_data
-        self.user_clean_data = list(set(idxs)-set(user_noisy_data))
-        
 
     def update_label_accuracy(self):
         self.noise_logger.write(
@@ -416,8 +412,10 @@ class LocalUpdateFedRN(BaseLocalUpdate):
             real_idx_return=True,
             noise_logger=noise_logger,
             gaussian_noise=gaussian_noise,
-            user_noisy_data=user_noisy_data
         )
+        self.user_noisy_data = user_noisy_data
+        self.user_clean_data = list(set(idxs)-set(user_noisy_data))
+
         self.CE = nn.CrossEntropyLoss(reduction='none')
         
         self.ldr_eval = DataLoader(
@@ -471,7 +469,7 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         # List indexing rule - 0:prev, 1:neighbor1, 2:neighbor2 ...    
         # Merge scores & determine coeff. for weighted average
         score_list = [prev_score] + neighbor_score_lst
-        score_list = [i/sum(score_list) for i in score_list]
+        score_list = [score / sum(score_list) for score in score_list]
    
         losses_lst = [[] for i in range(1 + len(neighbor_lst))]
         idx_lst = []
@@ -489,7 +487,7 @@ class LocalUpdateFedRN(BaseLocalUpdate):
                 idx_lst.append(idxs.cpu().numpy()) 
         indices = np.concatenate(idx_lst)
         # Initialize final_prob
-        final_prob = [0 for i in range(len(indices))]
+        final_prob = [0] * len(indices)
         
         # Fit prev GMM & Get prev_clean
         losses[0] = torch.cat(losses_lst[0]).cpu().numpy()
@@ -502,7 +500,7 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         final_prob = np.add(final_prob, prob)
 
         # Neighbor fine-tuning (Head Only) with expected-to-be-clean data by prev_model
-        neigbor_lst = self.finetune(neighbor_lst, prev_clean)
+        neighbor_lst = self.finetune(neighbor_lst, prev_clean)
         
         # Get neighbor loss
         for n_net in neighbor_lst:
@@ -693,9 +691,10 @@ class LocalUpdateRNMix(LocalUpdateFedRN):
             idxs=idxs,
             noise_logger=noise_logger,
             gaussian_noise=gaussian_noise,
-            user_noisy_data=user_noisy_data
         )
-        
+        self.user_noisy_data = user_noisy_data
+        self.user_clean_data = list(set(idxs)-set(user_noisy_data))
+
         self.CE = nn.CrossEntropyLoss(reduction='none')
         self.CEloss = nn.CrossEntropyLoss()
         self.semiloss = SemiLoss()
@@ -1191,7 +1190,7 @@ class LocalUpdateJointOptim(BaseLocalUpdate):
 
 class LocalUpdateCoteaching(BaseLocalUpdate):
     def __init__(self, args, user_idx=None, dataset=None, idxs=None, noise_logger=None, is_coteaching_plus=False,
-                 gaussian_noise=None, user_noisy_data=None):
+                 gaussian_noise=None):
         super().__init__(
             args=args,
             user_idx=user_idx,
@@ -1200,7 +1199,6 @@ class LocalUpdateCoteaching(BaseLocalUpdate):
             real_idx_return=True,
             noise_logger=noise_logger,
             gaussian_noise=gaussian_noise,
-            user_noisy_data=user_noisy_data
         )
         self.loss_func = nn.CrossEntropyLoss(reduce=False)
         self.is_coteaching_plus = is_coteaching_plus
@@ -1300,7 +1298,7 @@ class LocalUpdateDivideMix(BaseLocalUpdate):
             dataset=dataset,
             idxs=idxs,
             idx_return=True,
-            noise_logger=noise_logger
+            noise_logger=noise_logger,
         )
         self.CE = nn.CrossEntropyLoss(reduction='none')
         self.CEloss = nn.CrossEntropyLoss()
