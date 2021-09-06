@@ -78,7 +78,7 @@ python main_fed_LNL.py \
 | `noisy_group_num`  | Number of clients corresponding to noisy type. |
 | `group_noise_rate` | The noise rate corresponding to the noisy group. It increases linearly from 0.0 to noise rate for each group. |
 
-### Parameters for RedRN
+### Parameters for FedRN
 | Parameter                      | Description                                 |
 | ----------------------------- | ---------------------------------------- |
 | `num_neighbors` |  The number of reliable neighbors, default = `2` |
