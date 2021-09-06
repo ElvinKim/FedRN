@@ -14,7 +14,6 @@ from .correctors import SelfieCorrector, JointOptimCorrector
 import os
 import csv
 from .Nets import get_model
-import nsml
 
 
 class DatasetSplit(Dataset):

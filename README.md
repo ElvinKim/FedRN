@@ -53,8 +53,8 @@ python main_fed_LNL.py \
 ### Parameters for learning
 | Parameter                      | Description                                 |
 | ----------------------------- | ---------------------------------------- |
-| `model` | The model architecture. Options: `cnn`, `mobile`, `cnn4conv`, `mlp`. default = `cnn4conv`. |
-| `dataset`      | Dataset to use. Options:  `cifar10`, `cifar100`, `webvision`. default = `cifar10`. |
+| `model` | The model architecture. default = `cnn4conv`. |
+| `dataset`      | Dataset to use. Options:  `cifar10`, `cifar100`. default = `cifar10`. |
 | `lr` | Learning rate for the local models, default = `0.01`. |
 | `momentum` | SGD momentum, default = `0.5`. |
 | `epochs` | The total number of communication roudns, default = `500`. |

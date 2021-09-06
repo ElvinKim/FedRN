@@ -5,16 +5,14 @@ from torchvision import transforms
 import nsml
 from .cifar import CIFAR10, CIFAR100
 from .mnist import MNIST
-from .webvision import WebvisionDataset, ImagenetDataset
 
 
 def load_dataset(dataset):
     """
-    Returns: dataset_train, dataset_test, imagenet_val, num_classes
+    Returns: dataset_train, dataset_test, num_classes
     """
     dataset_train = None
     dataset_test = None
-    imagenet_val = None
     num_classes = 0
 
     if dataset == 'mnist':
@@ -100,38 +98,7 @@ def load_dataset(dataset):
         )
         num_classes = 100
 
-    elif dataset == 'webvision':
-        transform_train = transforms.Compose([
-            transforms.Resize(33),
-            transforms.RandomResizedCrop(32),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-        ])
-        transform_val = transforms.Compose([
-            transforms.Resize(33),
-            transforms.CenterCrop(32),
-            transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-        ])
-        transform_imagenet = transforms.Compose([
-            transforms.Resize(33),
-            transforms.CenterCrop(32),
-            transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-        ])
-
-        num_classes = 50
-        dataset_args = dict(
-            root_dir=os.path.join(nsml.DATASET_PATH, 'train/') if nsml.IS_ON_NSML else '',
-            num_class=num_classes,
-        )
-
-        dataset_train = WebvisionDataset(mode='train', transform=transform_train, **dataset_args, )
-        dataset_test = WebvisionDataset(mode='webvision_val', transform=transform_val, **dataset_args, )
-        imagenet_val = ImagenetDataset(transform=transform_imagenet, **dataset_args, )
-
     else:
         raise NotImplementedError('Error: unrecognized dataset')
 
-    return dataset_train, dataset_test, imagenet_val, num_classes
+    return dataset_train, dataset_test, num_classes

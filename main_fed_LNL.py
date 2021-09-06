@@ -59,7 +59,7 @@ if __name__ == '__main__':
     ##############################
     # Load dataset and split users
     ##############################
-    dataset_train, dataset_test, imagenet_val, args.num_classes = load_dataset(args.dataset)
+    dataset_train, dataset_test, args.num_classes = load_dataset(args.dataset)
     labels = np.array(dataset_train.train_labels)
     img_size = dataset_train[0][0].shape  # used to get model
     args.img_size = int(img_size[1])
@@ -161,8 +161,6 @@ if __name__ == '__main__':
     )
     log_train_data_loader = torch.utils.data.DataLoader(dataset_train, **logging_args)
     log_test_data_loader = torch.utils.data.DataLoader(dataset_test, **logging_args)
-    if imagenet_val is not None:
-        log_imagenet_val_data_loader = torch.utils.data.DataLoader(imagenet_val, **logging_args)
 
     ##############################
     # Build model
@@ -374,11 +372,6 @@ if __name__ == '__main__':
         results = dict(train_acc=train_acc, train_loss=train_loss,
                        test_acc=test_acc, test_loss=test_loss, )
 
-        if imagenet_val is not None:
-            test_imagenet_acc, test_imagenet_loss = test_img(net_glob, log_imagenet_val_data_loader, args)
-            results['test_imagenetacc'] = test_imagenet_acc
-            results['test_imagenetloss'] = test_imagenet_loss
-
         if args.send_2_models:
             w_glob2 = local_weights2.average()
             net_glob2.load_state_dict(w_glob2)
@@ -388,10 +381,6 @@ if __name__ == '__main__':
             test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
             results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
                             test_acc2=test_acc2, test_loss2=test_loss2, )
-            if imagenet_val is not None:
-                test_imagenet_acc2, test_imagenet_loss2 = test_img(net_glob, log_imagenet_val_data_loader, args)
-                results2['test_imagenetacc2'] = test_imagenet_acc2
-                results2['test_imagenetloss2'] = test_imagenet_loss2
 
             results = {**results, **results2}
 

@@ -60,19 +60,12 @@ class Logger:
 
         self.f = open(result_dir + result_f + ".csv", 'w', newline='')
         self.wr = csv.writer(self.f)
-        self.use_imagenetval = args.dataset == 'webvision'
 
         if self.use_2_models:
             columns = ['epoch', 'train_acc', 'train_loss', 'train_acc2', 'train_loss2',
                        'test_acc', 'test_loss', 'test_acc2', 'test_loss2']
         else:
             columns = ['epoch', 'train_acc', 'train_loss', 'test_acc', 'test_loss']
-
-        if self.use_imagenetval:
-            if self.use_2_models:
-                columns.extend(['test_imagenetacc', 'test_imagenetloss', 'test_imagenetacc2', 'test_imagenetloss2'])
-            else:
-                columns.extend(['test_imagenetacc', 'test_imagenetloss'])
 
         self.wr.writerow(columns)
 
@@ -82,8 +75,6 @@ class Logger:
 
     def write(self, epoch, train_acc, train_loss, test_acc, test_loss,
               train_acc2=None, train_loss2=None, test_acc2=None, test_loss2=None,
-              test_imagenetacc=None, test_imagenetloss=None,
-              test_imagenetacc2=None, test_imagenetloss2=None,
               ):
 
         if self.use_2_models:
@@ -91,12 +82,6 @@ class Logger:
                    test_acc, test_loss, test_acc2, test_loss2]
         else:
             row = [epoch, train_acc, train_loss, test_acc, test_loss]
-
-        if self.use_imagenetval:
-            if self.use_2_models:
-                row.extend([test_imagenetacc, test_imagenetloss, test_imagenetacc2, test_imagenetloss2])
-            else:
-                row.extend([test_imagenetacc, test_imagenetloss])
 
         self.wr.writerow(row)
 
