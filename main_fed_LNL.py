@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from utils import Logger, NoiseLogger, load_dataset
-from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet, valid_sampling
+from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
 
@@ -87,9 +87,6 @@ if __name__ == '__main__':
     tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
     tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)
 
-
-    valid_dict_users = valid_sampling(dict_users, args.num_users, dataset_test, tmp_true_labels)
-    
     ##############################
     # Add label noise to data
     ##############################
