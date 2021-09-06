@@ -9,31 +9,64 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 
-def test_img(net_g, data_loader, args):
+def test_img(net_g,
+             data_loader,
+             gpu,
+             device,
+             feature_return=False,
+             verbose=True,
+             topk=(1, 5),
+             ):
     net_g.eval()
     test_loss = 0
-    correct = 0
+    total_correct = [0] * len(topk)
     n_total = len(data_loader.dataset)
-    
+
     for idx, (data, target) in enumerate(data_loader):
-        if args.gpu != -1:
-            data, target = data.to(args.device), target.to(args.device)
-        if args.feature_return:
+        if gpu != -1:
+            data, target = data.to(device), target.to(device)
+        if feature_return:
             log_probs, _ = net_g(data)
         else:
             log_probs = net_g(data)
         # sum up batch loss
         test_loss += F.cross_entropy(log_probs, target, reduction='sum').item()
         # get the index of the max log-probability
-        y_pred = log_probs.data.max(1, keepdim=True)[1]
-        correct += y_pred.eq(target.data.view_as(y_pred)).float().sum().item()
+        topk_correct = precision(log_probs, target, topk=topk)
+        for i in range(len(topk)):
+            total_correct[i] += topk_correct[i]
 
     test_loss /= n_total
-    accuracy = 100.0 * correct / n_total
-    if args.verbose:
-        print('\nTest set: Average loss: {:.4f} \nAccuracy: {}/{} ({:.2f}%)\n'.format(
-            test_loss, correct, n_total, accuracy))
-    return accuracy, test_loss
+
+    results = {'loss': test_loss}
+    topk_accuracy = []
+    for n_correct in total_correct:
+        accuracy = 100.0 * n_correct / n_total
+        topk_accuracy.append(accuracy)
+
+    for k, accuracy in zip(topk, topk_accuracy):
+        results[f'top{k}acc'] = accuracy
+
+    if verbose:
+        print('\nTest set: Average loss: {:.4f} \n'.format(test_loss))
+        for k, n_correct, accuracy in zip(topk, total_correct, topk_accuracy):
+            print('Top{}-Accuracy: {}/{} ({:.2f}%))'.format(k, n_correct, n_total, accuracy))
+
+    return results
+
+
+def precision(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.data.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].float().sum(0)
+        res.append(sum(correct_k).item())
+    return res
 
 
 def test_img_HS(net_g, datatest, args):

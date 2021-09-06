@@ -80,23 +80,34 @@ class Logger:
         with open(result_dir + result_f + ".txt", 'w') as option_f:
             option_f.write(str(args))
 
-    def write(self, epoch, train_acc, train_loss, test_acc, test_loss,
-              train_acc2=None, train_loss2=None, test_acc2=None, test_loss2=None,
-              test_imagenetacc=None, test_imagenetloss=None,
-              test_imagenetacc2=None, test_imagenetloss2=None,
+    def write(self,
+              epoch,
+              train__top1acc,
+              train__loss,
+              test__top1acc,
+              test__loss,
+              train__top1acc2=None,
+              train__loss2=None,
+              test__top1acc2=None,
+              test__loss2=None,
+              test__imagenet_top1acc=None,
+              test__imagenet_loss=None,
+              test__imagenet_top1acc2=None,
+              test__imagenet_loss2=None,
+              **args,
               ):
 
         if self.use_2_models:
-            row = [epoch, train_acc, train_loss, train_acc2, train_loss2,
-                   test_acc, test_loss, test_acc2, test_loss2]
+            row = [epoch, train__top1acc, train__loss, train__top1acc2, train__loss2,
+                   test__top1acc, test__loss, test__top1acc2, test__loss2]
         else:
-            row = [epoch, train_acc, train_loss, test_acc, test_loss]
+            row = [epoch, train__top1acc, train__loss, test__top1acc, test__loss]
 
         if self.use_imagenetval:
             if self.use_2_models:
-                row.extend([test_imagenetacc, test_imagenetloss, test_imagenetacc2, test_imagenetloss2])
+                row.extend([test__imagenet_top1acc, test__imagenet_loss, test__imagenet_top1acc2, test__imagenet_loss2])
             else:
-                row.extend([test_imagenetacc, test_imagenetloss])
+                row.extend([test__imagenet_top1acc, test__imagenet_loss])
 
         self.wr.writerow(row)
 

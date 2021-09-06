@@ -104,8 +104,7 @@ if __name__ == '__main__':
     tmp_true_labels = list(copy.deepcopy(dataset_train.train_labels))
     tmp_true_labels = torch.tensor(tmp_true_labels).to(args.device)
 
-
-    valid_dict_users = valid_sampling(dict_users, args.num_users, dataset_test, tmp_true_labels)
+    # valid_dict_users = valid_sampling(dict_users, args.num_users, dataset_test, tmp_true_labels)
     
     ##############################
     # Add label noise to data
@@ -203,6 +202,15 @@ if __name__ == '__main__':
     ##############################
     # Training
     ##############################
+    test_args = dict(
+        gpu=args.gpu,
+        device=args.device,
+        feature_return=args.feature_return,
+        verbose=args.verbose,
+    )
+    train_topk = (1,)
+    test_topk = (1, 5) if args.dataset == 'webvision' else (1,)
+
     logger = Logger(args, args.send_2_models)
     noise_logger = NoiseLogger(args, user_noisy_data, dict_users)
 
@@ -390,116 +398,115 @@ if __name__ == '__main__':
                     w_sum[i] = 1
             f_G = torch.div(tmp, w_sum)
 
-        train_acc, train_loss = test_img(net_glob, log_train_data_loader, args)
-        test_acc, test_loss = test_img(net_glob, log_test_data_loader, args)
+        train_results = test_img(net_glob, log_train_data_loader, topk=train_topk, **test_args)
+        test_results = test_img(net_glob, log_test_data_loader, topk=test_topk, **test_args)
 
         # for logging purposes
-        results = dict(train_acc=train_acc, train_loss=train_loss,
-                       test_acc=test_acc, test_loss=test_loss, )
+        results = {
+            **{'train__' + k: v for k, v in train_results.items()},
+            **{'test__' + k: v for k, v in test_results.items()},
+        }
 
         if imagenet_val is not None:
-            test_imagenet_acc, test_imagenet_loss = test_img(net_glob, log_imagenet_val_data_loader, args)
-            results['test_imagenetacc'] = test_imagenet_acc
-            results['test_imagenetloss'] = test_imagenet_loss
+            test_imagenet_results = test_img(net_glob, log_imagenet_val_data_loader, topk=test_topk, **test_args)
+            results.update({'test__imagenet_' + k: v for k, v in test_imagenet_results.items()})
 
         if args.send_2_models:
             w_glob2 = local_weights2.average()
             net_glob2.load_state_dict(w_glob2)
             local_weights2.init()
             # for logging purposes
-            train_acc2, train_loss2 = test_img(net_glob2, log_train_data_loader, args)
-            test_acc2, test_loss2 = test_img(net_glob2, log_test_data_loader, args)
-            results2 = dict(train_acc2=train_acc2, train_loss2=train_loss2,
-                            test_acc2=test_acc2, test_loss2=test_loss2, )
-            if imagenet_val is not None:
-                test_imagenet_acc2, test_imagenet_loss2 = test_img(net_glob, log_imagenet_val_data_loader, args)
-                results2['test_imagenetacc2'] = test_imagenet_acc2
-                results2['test_imagenetloss2'] = test_imagenet_loss2
+            train_results2 = test_img(net_glob2, log_train_data_loader, topk=train_topk, **test_args)
+            test_results2 = test_img(net_glob2, log_test_data_loader, topk=test_topk, **test_args)
 
-            results = {**results, **results2}
-        print('=================================================================================')
+            results.update(**{'train__' + k + '2': v for k, v in train_results2.items()})
+            results.update(**{'test__' + k + '2': v for k, v in test_results2.items()})
+
+            if imagenet_val is not None:
+                test_imagenet_results2 = test_img(net_glob, log_imagenet_val_data_loader, topk=test_topk, **test_args)
+                results.update({'test__imagenet_' + k + '2': v for k, v in test_imagenet_results2.items()})
+
+        # print('=================================================================================')
         print('Round {:3d}'.format(epoch))
         print(' - '.join([f'{k}: {v:.6f}' for k, v in results.items()]))
-        print('=================================================================================')
+        # print('=================================================================================')
 
         logger.write(epoch=epoch + 1, **results)
 
         if nsml.IS_ON_NSML:
-            nsml_results = {result_key.replace('_', '__'): result_value
-                            for result_key, result_value in results.items()}
             nsml.report(
                 summary=True,
                 step=epoch,
                 epoch=epoch,
                 lr=args.lr,
-                **nsml_results,
+                **results,
             )
     
     ##############################
     # Final Client Validation Acc.
     ##############################
-    if args.save_dir is None:
-        result_dir = './save/'
-    else:
-        result_dir = './save/{}/'.format(args.save_dir)
-            
-    result_f = 'val_acc_summary_nei[{}]_alpha[{}]_{}_{}_{}_{}_NT[{}]_GNR[{}]_PT[{}]_SHARDNUM[{}]'.format(
-                args.num_neighbors,
-                args.w_alpha,
-                args.dataset,
-                args.method,
-                args.model,
-                args.epochs,
-                args.noise_type_lst,
-                args.group_noise_rate,
-                args.partition,
-                args.num_shards
-                )
-
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
-    
-    f = open(result_dir + result_f + ".csv", 'w', newline='')
-    wr = csv.writer(f)
-
-    wr.writerow(['user_id', 'val_acc'])
-    
-    for i in range(args.num_users):
-        valid_loader = DataLoader(
-            DatasetSplit(dataset_test, valid_dict_users[i], idx_return=False, real_idx_return=True),
-            batch_size=args.local_bs,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        
-        client_net = local_update_objects[i].net1
-        client_net.eval()
-        val_tot = len(valid_dict_users[i])
-        val_correct = 0
-        
-        if args.send_2_models:
-            client_net2 = local_update_objects[i].net2
-            client_net2.eval()
-            val_correct2 = 0
-
-        with torch.no_grad():
-            for batch_idx, (inputs, targets, items, idxs) in enumerate(valid_loader):
-                inputs, targets = inputs.to(args.device), targets.to(args.device)
-                outputs = client_net(inputs)
-                y_pred = outputs.data.max(1, keepdim=True)[1]
-                val_correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
-                if args.send_2_models:
-                    outputs2 = client_net2(inputs)
-                    y_pred2 = outputs2.data.max(1, keepdim=True)[1]
-                    val_correct2 += y_pred2.eq(targets.data.view_as(y_pred2)).float().sum().item()
-                    
-            if args.send_2_models:
-                val_correct = max(val_correct, val_correct2)
-                
-            val_acc = val_correct * 100 / val_tot
-        wr.writerow([i, val_acc])
-    
-    logger.close()
-    noise_logger.close()
-    print("time :", time.time() - start)
+    # if args.save_dir is None:
+    #     result_dir = './save/'
+    # else:
+    #     result_dir = './save/{}/'.format(args.save_dir)
+    #
+    # result_f = 'val_acc_summary_nei[{}]_alpha[{}]_{}_{}_{}_{}_NT[{}]_GNR[{}]_PT[{}]_SHARDNUM[{}]'.format(
+    #             args.num_neighbors,
+    #             args.w_alpha,
+    #             args.dataset,
+    #             args.method,
+    #             args.model,
+    #             args.epochs,
+    #             args.noise_type_lst,
+    #             args.group_noise_rate,
+    #             args.partition,
+    #             args.num_shards
+    #             )
+    #
+    # if not os.path.exists(result_dir):
+    #     os.makedirs(result_dir)
+    #
+    # f = open(result_dir + result_f + ".csv", 'w', newline='')
+    # wr = csv.writer(f)
+    #
+    # wr.writerow(['user_id', 'val_acc'])
+    #
+    # for i in range(args.num_users):
+    #     valid_loader = DataLoader(
+    #         DatasetSplit(dataset_test, valid_dict_users[i], idx_return=False, real_idx_return=True),
+    #         batch_size=args.local_bs,
+    #         shuffle=False,
+    #         num_workers=args.num_workers,
+    #         pin_memory=True,
+    #     )
+    #
+    #     client_net = local_update_objects[i].net1
+    #     client_net.eval()
+    #     val_tot = len(valid_dict_users[i])
+    #     val_correct = 0
+    #
+    #     if args.send_2_models:
+    #         client_net2 = local_update_objects[i].net2
+    #         client_net2.eval()
+    #         val_correct2 = 0
+    #
+    #     with torch.no_grad():
+    #         for batch_idx, (inputs, targets, items, idxs) in enumerate(valid_loader):
+    #             inputs, targets = inputs.to(args.device), targets.to(args.device)
+    #             outputs = client_net(inputs)
+    #             y_pred = outputs.data.max(1, keepdim=True)[1]
+    #             val_correct += y_pred.eq(targets.data.view_as(y_pred)).float().sum().item()
+    #             if args.send_2_models:
+    #                 outputs2 = client_net2(inputs)
+    #                 y_pred2 = outputs2.data.max(1, keepdim=True)[1]
+    #                 val_correct2 += y_pred2.eq(targets.data.view_as(y_pred2)).float().sum().item()
+    #
+    #         if args.send_2_models:
+    #             val_correct = max(val_correct, val_correct2)
+    #
+    #         val_acc = val_correct * 100 / val_tot
+    #     wr.writerow([i, val_acc])
+    #
+    # logger.close()
+    # noise_logger.close()
+    # print("time :", time.time() - start)
