@@ -1,18 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Python version: 3.6
+import numpy as np
+from sklearn.mixture import GaussianMixture
 
 import torch
-from torch import nn, autograd
-from torch.utils.data import DataLoader, Dataset
 import torch.nn.functional as F
+from torch import nn
 from torch.autograd import Variable
-import numpy as np
-import copy
-from sklearn.mixture import GaussianMixture
+from torch.utils.data import DataLoader, Dataset
+
 from .correctors import SelfieCorrector, JointOptimCorrector
-import os
-import csv
 from .Nets import get_model
 
 

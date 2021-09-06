@@ -1,5 +1,3 @@
-import csv
-import os
 from torchvision import transforms
 from .cifar import CIFAR10, CIFAR100
 

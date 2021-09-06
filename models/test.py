@@ -2,11 +2,7 @@
 # -*- coding: utf-8 -*-
 # @python: 3.6
 
-import torch
-from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-import numpy as np
 
 
 def test_img(net_g, data_loader, args):

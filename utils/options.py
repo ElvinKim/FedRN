@@ -3,7 +3,6 @@
 # Python version: 3.6
 
 import argparse
-import sys
 
 
 def args_parser():

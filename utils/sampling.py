@@ -4,8 +4,6 @@
 
 
 import numpy as np
-from torchvision import datasets, transforms
-from collections import Counter
 
 
 def sample_iid(labels, num_users):

@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
-
+from collections import Counter
 import copy
 import numpy as np
+import os
 import random
-from collections import Counter
+import time
 
 import torchvision
 import torch
@@ -17,13 +18,10 @@ from utils.sampling import sample_iid, sample_noniid_shard, sample_dirichlet
 from utils.options import args_parser
 from utils.utils import noisify_label
 
-from models.Update import get_local_update_objects, DatasetSplit
+from models.Update import get_local_update_objects
 from models.Nets import get_model
 from models.Fed import LocalModelWeights
 from models.test import test_img
-import time
-import os
-import csv
 
 
 if __name__ == '__main__':
