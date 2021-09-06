@@ -52,10 +52,10 @@ def args_parser():
     parser.add_argument('--group_noise_rate', nargs='+', default=[0.2], type=float,
                         help='Should be 2 noise rates for each group: min_group_noise_rate max_group_noise_rate but '
                              'if there is only 1 group and 1 noise rate, same noise rate will be applied to all users')
+    parser.add_argument('--warmup_epochs', type=int, default=100, help='number of warmup epochs')
 
     # SELFIE / Joint optimization arguments
     parser.add_argument('--queue_size', type=int, default=15, help='size of history queue')
-    parser.add_argument('--warmup_epochs', type=int, default=100, help='number of warmup epochs')
     # SELFIE / Co-teaching arguments
     parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
     # SELFIE arguments
