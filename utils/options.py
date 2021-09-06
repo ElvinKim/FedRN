@@ -106,7 +106,7 @@ def args_parser():
 
     # For our method
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
-    parser.add_argument('--w_alpha', type=float, help='weight alpha for our method', default=0.5)
+    parser.add_argument('--w_alpha', type=float, help='weight alpha for our method', default=0.2)
 
     args = parser.parse_args()
     return args
