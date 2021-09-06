@@ -4,7 +4,6 @@
 
 import copy
 import numpy as np
-import os
 import random
 import time
 
@@ -199,7 +198,6 @@ if __name__ == '__main__':
         for client_num, idx in enumerate(idxs_users):
             local = local_update_objects[idx]
             local.args = args
-            # local.args.local_bs = int(len(dict_users[idx]) / 10)
 
             if args.method == "fedrn":
                 if epoch < args.warmup_epochs:

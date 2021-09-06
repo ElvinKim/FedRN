@@ -12,7 +12,6 @@ class JointOptimCorrector:
         self.counts = np.zeros(data_size, dtype=int)
         # probability histories of samples
         self.probability_history = torch.zeros(data_size, queue_size, num_classes)
-        # self.prediction = np.zeros((self.args.epoch_update, len(self.train_data), 10) ,dtype=np.float32)
 
         # labels
         #self.hard_labels = torch.zeros(data_size, dtype=torch.int64)
@@ -43,7 +42,6 @@ class JointOptimCorrector:
 
         init_indices = np.where(self.counts[data_indices] == 0)[0]
         if len(init_indices):
-            #self.hard_labels[data_indices] = labels
             self.hard_labels[data_indices, labels] = 1.
             self.soft_labels[data_indices, labels] = 1.
 
@@ -61,7 +59,6 @@ class JointOptimCorrector:
 
     def update_labels(self):
         self.soft_labels = self.probability_history.mean(dim=1)
-        #self.hard_labels = torch.argmax(self.soft_labels, dim=1)
         h_labels = torch.argmax(self.soft_labels, dim=1).reshape(-1,1)
         self.hard_labels = torch.zeros_like(self.soft_labels).scatter_(1, h_labels, 1.)
 

@@ -56,32 +56,23 @@ def args_parser():
     # SELFIE / Joint optimization arguments
     parser.add_argument('--queue_size', type=int, default=15, help='size of history queue')
     parser.add_argument('--warmup_epochs', type=int, default=100, help='number of warmup epochs')
+    # SELFIE / Co-teaching arguments
+    parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
     # SELFIE arguments
     parser.add_argument('--uncertainty_threshold', type=float, default=0.05, help='uncertainty threshold')
     # Joint optimization arguments
     parser.add_argument('--alpha', type=float, default=1.2, help="alpha for joint optimization")
     parser.add_argument('--beta', type=float, default=0.8, help="beta for joint optimization")
     parser.add_argument('--labeling', type=str, default='soft', help='[soft, hard]')
-
-    # Co-teaching arguments
-    parser.add_argument('--num_gradual', type=int, help='T_k', default=10)
-    parser.add_argument('--forget_rate', type=float, default=0.2, help="forget rate for co-teaching")
-    parser.add_argument('--forget_rate_schedule', type=str, default="fix", choices=['fix', 'stairstep'],
-                        help="forget rate schedule [fix, stairstep]")
-
     # MixMatch arguments
     parser.add_argument('--mm_alpha', default=4, type=float)
     parser.add_argument('--lambda_u', default=25, type=float, help='weight for unsupervised loss')
     parser.add_argument('--T', default=0.5, type=float)
     parser.add_argument('--p_threshold', default=0.5, type=float)
 
-    # save arguments
-    parser.add_argument('--save_dir', type=str, default=None, help="name of save directory")
-
     # FedRN
     parser.add_argument('--num_neighbors', type=int, default=2, help="number of neighbors")
     parser.add_argument('--w_alpha', type=float, help='weight alpha for our method', default=0.5)
-    parser.add_argument('--random_neighbor', action='store_true', help='random_neighbor')
-    
+
     args = parser.parse_args()
     return args
