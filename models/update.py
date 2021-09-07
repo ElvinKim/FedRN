@@ -380,9 +380,9 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         gmm = GaussianMixture(n_components=2, max_iter=100, tol=1e-2, reg_covar=5e-4)
         gmm.fit(input_loss)
         prob = gmm.predict_proba(input_loss)
-        prob_list = prob[:, gmm.means_.argmin()]
+        prob = prob[:, gmm.means_.argmin()]
 
-        return prob_list
+        return prob
 
     def get_clean_idx(self, prob):
         threshold = self.args.p_threshold
