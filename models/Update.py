@@ -500,7 +500,7 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         final_prob = np.add(final_prob, prob)
 
         # Neighbor fine-tuning (Head Only) with expected-to-be-clean data by prev_model
-        neighbor_lst = self.finetune(neighbor_lst, prev_clean)
+        # neighbor_lst = self.finetune(neighbor_lst, prev_clean)
         
         # Get neighbor loss
         for n_net in neighbor_lst:
