@@ -531,40 +531,40 @@ class LocalUpdateFedRN(BaseLocalUpdate):
         
         return final_clean, final_noisy, prob_dict
   
-    def finetune(self, neighbor_lst, clean_idx):
-        # Finetune only HEAD
-        loader = DataLoader(
-            DatasetSplit(self.dataset, clean_idx, real_idx_return=True),
-            batch_size=self.args.local_bs,
-            shuffle=True,
-            num_workers=self.args.num_workers,
-            pin_memory=True,
-        )
-        
-        n_opt_lst = []
-
-        for n_net in neighbor_lst:
-            n_net.train()
-            body_params = [p for name, p in n_net.named_parameters() if 'linear' not in name]
-            head_params = [p for name, p in n_net.named_parameters() if 'linear' in name]
-            
-            optimizer = torch.optim.SGD([{'params': head_params, 'lr': self.args.lr, 'momentum': self.args.momentum, 'weight_decay' : self.args.weight_decay},
-                                         {'params': body_params, 'lr': 0.0}])
-            n_opt_lst.append(optimizer)
-
-        for batch_idx, (inputs, targets, items, idxs) in enumerate(loader):
-            inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
-
-            for n_net, n_opt in zip(neighbor_lst, n_opt_lst):
-                n_net.zero_grad()
-
-                outputs = n_net(inputs)
-                loss = self.loss_func(outputs, targets)
-                loss.backward()
-
-                n_opt.step()
-
-        return neighbor_lst
+    # def finetune(self, neighbor_lst, clean_idx):
+    #     # Finetune only HEAD
+    #     loader = DataLoader(
+    #         DatasetSplit(self.dataset, clean_idx, real_idx_return=True),
+    #         batch_size=self.args.local_bs,
+    #         shuffle=True,
+    #         num_workers=self.args.num_workers,
+    #         pin_memory=True,
+    #     )
+    #
+    #     n_opt_lst = []
+    #
+    #     for n_net in neighbor_lst:
+    #         n_net.train()
+    #         body_params = [p for name, p in n_net.named_parameters() if 'linear' not in name]
+    #         head_params = [p for name, p in n_net.named_parameters() if 'linear' in name]
+    #
+    #         optimizer = torch.optim.SGD([{'params': head_params, 'lr': self.args.lr, 'momentum': self.args.momentum, 'weight_decay' : self.args.weight_decay},
+    #                                      {'params': body_params, 'lr': 0.0}])
+    #         n_opt_lst.append(optimizer)
+    #
+    #     for batch_idx, (inputs, targets, items, idxs) in enumerate(loader):
+    #         inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
+    #
+    #         for n_net, n_opt in zip(neighbor_lst, n_opt_lst):
+    #             n_net.zero_grad()
+    #
+    #             outputs = n_net(inputs)
+    #             loss = self.loss_func(outputs, targets)
+    #             loss.backward()
+    #
+    #             n_opt.step()
+    #
+    #     return neighbor_lst
 
     def train_phase1(self, client_num, net):
         # local training
