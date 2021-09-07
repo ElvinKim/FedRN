@@ -693,9 +693,8 @@ class LocalUpdateRNMix(LocalUpdateFedRN):
             idxs=idxs,
             noise_logger=noise_logger,
             gaussian_noise=gaussian_noise,
+            user_noisy_data=user_noisy_data,
         )
-        self.user_noisy_data = user_noisy_data
-        self.user_clean_data = list(set(idxs)-set(user_noisy_data))
 
         self.CE = nn.CrossEntropyLoss(reduction='none')
         self.CEloss = nn.CrossEntropyLoss()
@@ -715,6 +714,8 @@ class LocalUpdateRNMix(LocalUpdateFedRN):
     def train_phase2(self, client_num, net, prev_score, neighbor_lst, neighbor_score_lst):
         # fit GMM & get clean data index
         clean_idx, noisy_idx, prob_dict = self.split_data_indices(client_num, self.net1, prev_score, neighbor_lst, neighbor_score_lst)
+        if len(clean_idx) == 0:
+            clean_idx = noisy_idx
 
         for ep in range(self.args.local_ep):
             epoch_loss = []
