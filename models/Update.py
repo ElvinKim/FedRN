@@ -622,6 +622,8 @@ class LocalUpdateFedRN(BaseLocalUpdate):
     def train_phase2(self, client_num, net, prev_score, neighbor_lst, neighbor_score_lst):
         # fit GMM & get clean data index
         clean_idx, noisy_idx, prob_dict = self.split_data_indices(client_num, self.net1, prev_score, neighbor_lst, neighbor_score_lst)
+        if len(clean_idx) == 0:
+            clean_idx = noisy_idx
 
         self.ldr_train = DataLoader(DatasetSplit(self.dataset, clean_idx, real_idx_return=True),
                                     batch_size=self.args.local_bs,
