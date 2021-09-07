@@ -326,34 +326,15 @@ if __name__ == '__main__':
                     if epoch < args.warmup_epochs:
                         w, loss = local.train_phase1(client_num, copy.deepcopy(net_glob).to(args.device))
                     else:
+                        prev_score = 1
                         score_list = []
-                        sim_list = [cos_sim(local_update_objects[idx].arbitrary_output.to(args.device),
-                                            local_update_objects[n_i].arbitrary_output.to(args.device)) for n_i in
-                                    range(args.num_users)]
-                        exp_list = [local_update_objects[n_i].expertise for n_i in range(args.num_users)]
-
-                        # Similarity & expertise normalizing
-                        sim_list = [(i-min(sim_list))/(max(sim_list)-min(sim_list)) for i in sim_list]
-                        exp_list = [(i-min(exp_list))/(max(exp_list)-min(exp_list)) for i in exp_list]
-                        
-                        for index, (e, s) in enumerate(zip(exp_list, sim_list)):
+                        for index in range(args.num_users):
                             if index != idx:
-                                score = args.w_alpha * e + (1 - args.w_alpha) * s
-                                score_list.append([score, index])
+                                score_list.append([1, index])
+                        random.shuffle(score_list)
 
-                        score_list.sort(key=lambda x: x[0], reverse=True)
-                        
-                        prev_score = args.w_alpha * exp_list[idx] + (1 - args.w_alpha)
-                        
                         neighbor_lst = []
                         neighbor_score_lst = []
-                        print('--------------------------------------------------------------')
- 
-                        print('[Index & Score Summary]')
-                        print('Client          - idx: {}, sim: {:.5f}, exp: {:.5f}'.format(idx, 1, exp_list[idx]))
-                        data_counter = Counter(tmp_true_labels[dict_users[idx]].tolist())
-                        print('Client Data     - {}'.format(sorted(data_counter.items())))
-                        
                         for n_index in range(args.num_neighbors):
                             neighbor_idx = score_list[n_index][1]
                             neighbor_net = copy.deepcopy(local_update_objects[neighbor_idx].net1)
@@ -361,10 +342,6 @@ if __name__ == '__main__':
 
                             neighbor_score_lst.append(score_list[n_index][0])
 
-                            print('Neighbor {}      - idx: {}, sim: {:.5f}, exp: {:.5f}'.format(n_index+1, neighbor_idx, sim_list[neighbor_idx].item(), exp_list[neighbor_idx]))
-                            data_counter = Counter(tmp_true_labels[dict_users[neighbor_idx]].tolist())
-                            print('Neighbor {} Data - {}'.format(n_index+1, sorted(data_counter.items())))
-                            
                         w, loss = local.train_phase2(client_num, 
                                                      copy.deepcopy(net_glob).to(args.device),
                                                      prev_score,
