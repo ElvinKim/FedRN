@@ -387,12 +387,16 @@ class LocalUpdateFedRN(BaseLocalUpdate):
     def get_clean_idx(self, prob):
         threshold = self.args.p_threshold
         pred = (prob > threshold)
-        pred_clean_data = pred.nonzero()[0]
-        pred_clean_data = self.data_indices[pred_clean_data]
-        pred_noisy_data = (1 - pred).nonzero()[0]
-        pred_noisy_data = self.data_indices[pred_noisy_data]
+        pred_clean_idx = pred.nonzero()[0]
+        pred_clean_idx = self.data_indices[pred_clean_idx]
+        pred_noisy_idx = (1 - pred).nonzero()[0]
+        pred_noisy_idx = self.data_indices[pred_noisy_idx]
 
-        return pred_clean_data, pred_noisy_data
+        if len(pred_clean_idx) == 0:
+            pred_clean_idx = pred_noisy_idx
+            pred_noisy_idx = np.array([])
+
+        return pred_clean_idx, pred_noisy_idx
 
     def finetune_head(self, neighbor_list, pred_clean_idx):
         loader = DataLoader(
