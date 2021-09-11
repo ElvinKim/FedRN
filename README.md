@@ -85,3 +85,8 @@ python main_fed_LNL.py \
 | `w_alpha` | The hyperparameter controlling the contribution of expertise and data similiarity.|  |
 
 Please check `run.sh` for commands for various data and noisy label scenarios.
+
+
+## Experimental Result
+
+![experiment](https://user-images.githubusercontent.com/12638561/132940833-c9e4d317-a4c6-4a02-ae94-f261c588553d.png)
