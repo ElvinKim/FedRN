@@ -951,6 +951,35 @@ class LocalUpdateRFL(BaseLocalUpdate):
             num_workers=self.args.num_workers,
             pin_memory=True,
         )
+        
+    def print_precision_recall(self, indices):
+        clean_data = set(self.user_clean_data)
+        noisy_data = set(self.user_noisy_data)
+        pred_clean_data = indices
+        
+        threshold = self.args.p_threshold
+        for i in range(len(prob_lst)):
+            pred = (prob_lst[i] > threshold)
+            pred_clean_data = pred.nonzero()[0]
+            pred_clean_data = indices[pred_clean_data]
+            pred_noisy_data = (1 - pred).nonzero()[0]
+            pred_noisy_data = indices[pred_noisy_data]
+
+            if len(pred_clean_data) != 0:
+                pred_clean_data = set(pred_clean_data)
+            else:
+                pred_clean_data = set()
+            pred_noisy_data = set(pred_noisy_data)
+
+            true_positive = len(set(pred_clean_data) & set(clean_data))
+            false_positive = len(set(pred_clean_data) & set(noisy_data))
+            false_negative = len(set(pred_noisy_data) & set(clean_data))
+            true_negative = len(set(pred_noisy_data) & set(noisy_data))
+
+            precision = true_positive / max(true_positive + false_positive, 1)
+            recall = true_positive / max(true_positive + false_negative, 1)
+
+            print('Precision: {:.5f}, Recall: {:.5f}'.format(precision, recall))
 
     def RFLloss(self, logit, labels, feature, f_k, mask, small_loss_idxs, lambda_cen, lambda_e, new_labels):
         mse = torch.nn.MSELoss(reduce=False)
@@ -1025,14 +1054,25 @@ class LocalUpdateRFL(BaseLocalUpdate):
 
                 # batch 안에서의 index 순서
                 small_loss_idxs = self.get_small_loss_samples(logit, labels, self.args.forget_rate)
-
+                self.noise_logger.update(idx[small_loss_idxs])
+                '''
+                print('============================================================================')
+                print('------------------------------------small_loss_idxs-----------------------------------\n')
+                print(small_loss_idxs)
+                print('============================================================================')
+                print('------------------------------------real_small_loss_idxs-----------------------------------\n')
+                print(idx[small_loss_idxs])
+                print('============================================================================')
+                '''
+                
                 y_k_tilde = torch.zeros(self.args.local_bs, device=self.args.device)
                 mask = torch.zeros(self.args.local_bs, device=self.args.device)
                 for i in small_loss_idxs:
                     y_k_tilde[i] = torch.argmax(self.sim(f_k, torch.reshape(feature[i], (1, self.args.feature_dim))))
                     if y_k_tilde[i] == labels[i]:
                         mask[i] = 1
-
+                
+                '''
                 if client_num == 0 and iter == 0:
                     if batch_idx == 0:
                         print('============================================================================')
@@ -1051,8 +1091,9 @@ class LocalUpdateRFL(BaseLocalUpdate):
                     # for i in idx[small_loss_idxs]:
                     #    if self.pseudo_labels[i] == self.tmp_true_labels[i]:
                     #        correct_num += 1
-
-                    # When to use pseudo-labels
+                '''
+                
+                # When to use pseudo-labels
                 if self.args.g_epoch < self.args.T_pl:
                     for i in small_loss_idxs:
                         self.pseudo_labels[idx[i]] = labels[i]
@@ -1061,11 +1102,13 @@ class LocalUpdateRFL(BaseLocalUpdate):
                 new_labels = mask[small_loss_idxs] * labels[small_loss_idxs] + (1 - mask[small_loss_idxs]) * \
                              self.pseudo_labels[idx[small_loss_idxs]]
                 new_labels = new_labels.type(torch.LongTensor).to(self.args.device)
-
+                
+                '''
                 if client_num == 0 and iter == 0 and batch_idx == 0:
                     print('--------------------------------new_labels---------------------------------\n', new_labels)
                     print('============================================================================')
-
+                '''
+                
                 loss = self.RFLloss(logit, labels, feature, f_k, mask, small_loss_idxs, self.args.lambda_cen,
                                     self.args.lambda_e, new_labels)
 
@@ -1096,6 +1139,7 @@ class LocalUpdateRFL(BaseLocalUpdate):
                 batch_loss.append(loss.item())
 
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
+            self.update_label_accuracy()
 
         self.net1.load_state_dict(net.state_dict())
 
