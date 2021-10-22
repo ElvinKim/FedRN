@@ -88,5 +88,4 @@ Please check `run.sh` for commands for various data and noisy label scenarios.
 
 
 ## Experimental Result
-
-![experiment](https://user-images.githubusercontent.com/12638561/132940833-c9e4d317-a4c6-4a02-ae94-f261c588553d.png)
+![experiment](https://user-images.githubusercontent.com/12638561/138391786-715b1590-7690-4336-b39e-21d4a7677d82.png)
