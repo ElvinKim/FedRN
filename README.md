@@ -1,4 +1,4 @@
-# FedRN: Exploiting k-Reliable Neighbors Towards Robust Federated Learning
+# [CIKM 2022]FedRN: Exploiting k-Reliable Neighbors Towards Robust Federated Learning
 
 
 ## Abstract
